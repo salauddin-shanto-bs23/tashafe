@@ -1693,3 +1693,33 @@ add_action('admin_menu', function () {
     }
 
 }, 9999);
+
+add_filter('wp_nav_menu_objects', function ($items) {
+
+    foreach ($items as $key => $item) {
+
+        // Logged in user
+        if (is_user_logged_in()) {
+
+            // Remove Login
+            if (in_array('menu-login', $item->classes)) {
+                unset($items[$key]);
+            }
+
+        } 
+        // Logged out user
+        else {
+
+            // Remove Dashboard & Logout
+            if (
+                in_array('menu-dashboard', $item->classes) ||
+                in_array('menu-logout', $item->classes)
+            ) {
+                unset($items[$key]);
+            }
+        }
+    }
+
+    return $items;
+});
+
