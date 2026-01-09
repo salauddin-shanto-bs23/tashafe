@@ -713,7 +713,27 @@ add_action('wp_enqueue_scripts', function () {
  * Shortcode: [therapy_registration_form]
  * Custom registration form to replace UM plugin
  */
-add_shortcode('therapy_registration_form', 'render_therapy_registration_form');
+add_action('init', function () {
+    // Register on init so it reliably exists when content is rendered.
+    if (!shortcode_exists('therapy_registration_form')) {
+        add_shortcode('therapy_registration_form', 'render_therapy_registration_form');
+    }
+}, 5);
+
+// Fallback: some themes/plugins remove shortcode processing from page content.
+// If the page contains our tag, force shortcode parsing for that content.
+add_filter('the_content', function ($content) {
+    if (!is_string($content) || strpos($content, '[therapy_registration_form') === false) {
+        return $content;
+    }
+
+    if (!shortcode_exists('therapy_registration_form')) {
+        // In case this file was loaded late, register now as well.
+        add_shortcode('therapy_registration_form', 'render_therapy_registration_form');
+    }
+
+    return do_shortcode($content);
+}, 99);
 
 function render_therapy_registration_form()
 {
