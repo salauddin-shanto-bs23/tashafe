@@ -404,35 +404,77 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     // Get therapy group details
     $group_name = $post->post_title;
     
-    // Get session expiry date
+    // Get session expiry date - PRIORITY: Use passed value from form data
     $session_expiry = '';
     if (!empty($session_expiry_date_override)) {
         $session_expiry = $session_expiry_date_override;
-        error_log("[BP Create] Using passed session_expiry_date: {$session_expiry}");
+        error_log("[BP Create] ✓ Using PASSED session_expiry_date: '{$session_expiry}' (type: " . gettype($session_expiry_date_override) . ")");
     } else if (function_exists('get_field')) {
         $session_expiry = get_field('session_expiry_date', $therapy_group_id);
-        error_log("[BP Create] Got session_expiry_date from ACF: {$session_expiry}");
+        error_log("[BP Create] Got session_expiry_date from ACF: '{$session_expiry}'");
     }
     
     if (empty($session_expiry)) {
         $session_expiry = get_post_meta($therapy_group_id, 'session_expiry_date', true);
-        error_log("[BP Create] Got session_expiry_date from post_meta: {$session_expiry}");
+        error_log("[BP Create] Got session_expiry_date from post_meta: '{$session_expiry}'");
     }
     
-    // Build group description
+    // Build group description with expiry date
     $description = 'Therapy group chat.';
     if (!empty($session_expiry)) {
-        $expiry_date_obj = DateTime::createFromFormat('Y-m-d', $session_expiry);
-        if ($expiry_date_obj === false && strtotime($session_expiry)) {
-            $expiry_date_obj = new DateTime($session_expiry);
+        error_log("[BP Create] Processing expiry date: '{$session_expiry}' (type: " . gettype($session_expiry) . ", value: " . var_export($session_expiry, true) . ")");
+        
+        $expiry_date_obj = null;
+        
+        // If it's a numeric timestamp (ACF Number field stores Unix timestamp)
+        if (is_numeric($session_expiry)) {
+            error_log("[BP Create] Detected numeric timestamp: {$session_expiry}");
+            try {
+                $expiry_date_obj = new DateTime();
+                $expiry_date_obj->setTimestamp((int)$session_expiry);
+                error_log("[BP Create] ✓ Created DateTime from timestamp");
+            } catch (Exception $e) {
+                error_log("[BP Create] ✗ Failed to create DateTime from timestamp: " . $e->getMessage());
+            }
         }
         
-        if ($expiry_date_obj) {
+        // Try format 1: Y-m-d (2026-01-15) - from HTML date input
+        if (!$expiry_date_obj) {
+            $expiry_date_obj = DateTime::createFromFormat('Y-m-d', $session_expiry);
+            if ($expiry_date_obj !== false) {
+                error_log("[BP Create] ✓ Parsed date with Y-m-d format");
+            }
+        }
+        
+        // Try format 2: Ymd (20260115)
+        if ($expiry_date_obj === false) {
+            $expiry_date_obj = DateTime::createFromFormat('Ymd', $session_expiry);
+            if ($expiry_date_obj !== false) {
+                error_log("[BP Create] ✓ Parsed date with Ymd format");
+            }
+        }
+        
+        // Try format 3: strtotime as final fallback
+        if ($expiry_date_obj === false && strtotime($session_expiry)) {
+            try {
+                $expiry_date_obj = new DateTime($session_expiry);
+                error_log("[BP Create] ✓ Parsed date with strtotime/DateTime");
+            } catch (Exception $e) {
+                error_log("[BP Create] ✗ DateTime parsing failed: " . $e->getMessage());
+                $expiry_date_obj = null;
+            }
+        }
+        
+        if ($expiry_date_obj && $expiry_date_obj instanceof DateTime) {
             $expiry_date_obj->modify('+1 day');
             $expiry_notice_date = $expiry_date_obj->format('Y-m-d');
             $description = 'This group will expire on ' . $expiry_notice_date . '.';
-            error_log("[BP Create] Description: {$description}");
+            error_log("[BP Create] ✓✓ SUCCESS - Description set to: '{$description}'");
+        } else {
+            error_log("[BP Create] ✗✗ FAILED to parse expiry date '{$session_expiry}' - using default description");
         }
+    } else {
+        error_log("[BP Create] ⚠ No session_expiry date available - using default description");
     }
     
     // Get creator
@@ -3489,9 +3531,14 @@ function tbc_acf_save_post($post_id) {
     $existing_bp_group_id = get_post_meta($post_id, '_tbc_bp_group_id', true);
     
     if (!$existing_bp_group_id) {
-        // BP group doesn't exist - create it now (ACF fields are available)
+        // BP group doesn't exist - create it now (ACF fields are NOW available)
         error_log("[TBC] ACF fields saved, creating BP group for therapy_group {$post_id}");
-        create_buddypress_group_for_therapy($post_id, $post, true);
+        
+        // Get the expiry date from the just-saved ACF field
+        $session_expiry = function_exists('get_field') ? get_field('session_expiry_date', $post_id) : get_post_meta($post_id, 'session_expiry_date', true);
+        error_log("[TBC] Got session_expiry_date after ACF save: '{$session_expiry}'");
+        
+        create_buddypress_group_for_therapy($post_id, $post, $session_expiry);
     } else {
         // BP group exists - update description if expiry date changed
         error_log("[TBC] ACF fields updated for therapy_group {$post_id}, updating BP group {$existing_bp_group_id}");
@@ -3523,7 +3570,15 @@ function tbc_fallback_create_bp_group($therapy_group_id, $post, $update) {
     if (!$existing_bp_group_id) {
         // BP group doesn't exist - create it
         error_log("[TBC] Fallback: Creating BP group for therapy_group {$therapy_group_id}");
-        create_buddypress_group_for_therapy($therapy_group_id, $post, $update);
+        
+        // Try to get expiry date from post meta (ACF should have saved it by now due to priority 999)
+        $session_expiry = get_post_meta($therapy_group_id, 'session_expiry_date', true);
+        if (empty($session_expiry) && function_exists('get_field')) {
+            $session_expiry = get_field('session_expiry_date', $therapy_group_id);
+        }
+        error_log("[TBC] Fallback: Got session_expiry_date: '{$session_expiry}'");
+        
+        create_buddypress_group_for_therapy($therapy_group_id, $post, $session_expiry);
     }
 }
 
