@@ -1,5 +1,4 @@
 <?php
-
 add_action('init', function () {
     if (!session_id()) {
         session_start();
@@ -10,11 +9,18 @@ add_action('template_redirect', function () {
         session_start();
     }
 
-    // Match any page ending with -assessment
+    // Redirect /ar/register-2/ to /ar/register-arabic/
+    $current_url = $_SERVER['REQUEST_URI'] ?? '';
+    if (strpos($current_url, '/ar/register-2') !== false || strpos($current_url, '/ar/register-2/') !== false) {
+        wp_safe_redirect(home_url('/ar/register-arabic/'));
+        exit;
+    }
+
+    // Match any page ending with -assessment or -assessment-arabic
     if (is_page()) {
         $page_slug = get_post_field('post_name', get_post());
 
-        if (preg_match('/-assessment(-\d+)?$/', $page_slug)) {
+        if (preg_match('/-assessment(?:-arabic)?(?:-\d+)?$/', $page_slug)) {
             if (isset($_GET['issue']) && isset($_GET['gender'])) {
                 $issue  = sanitize_text_field($_GET['issue']);
                 $gender = sanitize_text_field($_GET['gender']);
@@ -61,7 +67,7 @@ add_action('template_redirect', function () {
             unset($_SESSION['just_registered']);
 
             $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-            $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-2') : home_url('/thank-you');
+            $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
 
             wp_safe_redirect($redirect_url);
             exit;
@@ -165,12 +171,12 @@ function update_session_values()
 }
 
 add_action('um_registration_complete', function ($user_id, $args) {
-    error_log("[User Reg] UM registration complete for user ID: {$user_id}");
+    error_log("UM registration complete for user ID: $user_id");
 
     // Only proceed if this is an actual UM form submission (not wp_create_user from other sources)
     // Check if we have UM-specific data or posted_data from assessment
     if (empty($_SESSION['posted_data']) && empty($args)) {
-        error_log("[User Reg] Skipping UM registration complete - not a UM form submission");
+        error_log("Skipping UM registration complete - not a UM form submission");
         return;
     };
 
@@ -217,16 +223,23 @@ add_action('um_registration_complete', function ($user_id, $args) {
 
     // Get selected group from session
     $selected_group_id = isset($_SESSION['selected_group_id']) ? intval($_SESSION['selected_group_id']) : 0;
-    error_log("[User Reg] Calling assign_user_to_active_group with selected_group_id: {$selected_group_id}");
+    error_log("UM Reg - Calling assign_user_to_active_group with selected_group_id: $selected_group_id");
     assign_user_to_active_group($user_id, [], $selected_group_id);
     
     // Log the final assigned group for BP enrollment to pick up
     $final_assigned_group = get_user_meta($user_id, 'assigned_group', true);
-    error_log("[User Reg] ✓ User {$user_id} assigned to therapy_group: {$final_assigned_group}");
+    error_log("[User Reg UM] ✓ User {$user_id} assigned to therapy_group: {$final_assigned_group}");
 
     // ✅ ENROLL USER INTO BUDDYPRESS CHAT GROUP IMMEDIATELY
     if ($final_assigned_group) {
-        enroll_user_to_bp_chat_group($user_id, $final_assigned_group);
+        $enrollment_result = enroll_user_to_bp_chat_group($user_id, $final_assigned_group);
+        if ($enrollment_result) {
+            error_log("[User Reg UM] ✓✓✓ BP enrollment successful for user {$user_id}");
+        } else {
+            error_log("[User Reg UM] ✗✗✗ BP enrollment FAILED for user {$user_id} - Check enroll_user_to_bp_chat_group logs above");
+        }
+    } else {
+        error_log("[User Reg UM] ✗ No therapy group assigned - BP enrollment skipped for user {$user_id}");
     }
 
     // Let UM do auto-approval from role settings, just mark session flag for redirect
@@ -271,12 +284,12 @@ function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
         $issue  = get_user_meta($user_id, 'concern_type', true);
         $gender = get_user_meta($user_id, 'gender', true);
 
-        error_log("[User Reg] Assigning group to user {$user_id} | Issue: {$issue} | Gender: {$gender}");
+        error_log("Assigning group to user $user_id | Issue: $issue | Gender: $gender");
 
         // Check if user selected a specific group - prioritize direct parameter, then session
         $selected_group_id = $direct_group_id > 0 ? $direct_group_id : (isset($_SESSION['selected_group_id']) ? intval($_SESSION['selected_group_id']) : 0);
 
-        error_log("[User Reg] Selected group ID for assignment: {$selected_group_id}");
+        error_log("Selected group ID for assignment: {$selected_group_id}");
 
         // If user lacks issue/gender but manually picked a group, copy metadata from that group
         if (($issue === '' || $gender === '') && $selected_group_id > 0) {
@@ -284,6 +297,14 @@ function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
             if ($selected_group && $selected_group->post_type === 'therapy_group') {
                 $group_issue = function_exists('get_field') ? get_field('issue_type', $selected_group_id) : get_post_meta($selected_group_id, 'issue_type', true);
                 $group_gender = function_exists('get_field') ? get_field('gender', $selected_group_id) : get_post_meta($selected_group_id, 'gender', true);
+
+                // Ensure values are strings, not arrays
+                if (is_array($group_issue)) {
+                    $group_issue = !empty($group_issue) ? $group_issue[0] : '';
+                }
+                if (is_array($group_gender)) {
+                    $group_gender = !empty($group_gender) ? $group_gender[0] : '';
+                }
 
                 if ($group_issue) {
                     update_user_meta($user_id, 'concern_type', $group_issue);
@@ -315,6 +336,14 @@ function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
                     // Also ensure user has the correct issue/gender from the group
                     $group_issue = function_exists('get_field') ? get_field('issue_type', $selected_group_id) : get_post_meta($selected_group_id, 'issue_type', true);
                     $group_gender = function_exists('get_field') ? get_field('gender', $selected_group_id) : get_post_meta($selected_group_id, 'gender', true);
+
+                    // Ensure values are strings, not arrays
+                    if (is_array($group_issue)) {
+                        $group_issue = !empty($group_issue) ? $group_issue[0] : '';
+                    }
+                    if (is_array($group_gender)) {
+                        $group_gender = !empty($group_gender) ? $group_gender[0] : '';
+                    }
 
                     if ($group_issue && empty($issue)) {
                         update_user_meta($user_id, 'concern_type', $group_issue);
@@ -355,78 +384,6 @@ function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
     }
 }
 
-/**
- * Enroll user into BuddyPress chat group
- * 
- * @param int $user_id WordPress user ID
- * @param int $therapy_group_id Therapy group post ID
- */
-function enroll_user_to_bp_chat_group($user_id, $therapy_group_id) {
-    
-    // Only proceed if BuddyPress is active
-    if (!function_exists('groups_join_group') || !function_exists('bp_is_active') || !bp_is_active('groups')) {
-        error_log('[User Reg BP] BuddyPress Groups not active. Cannot enroll user.');
-        return false;
-    }
-    
-    error_log("[User Reg BP] ==== Starting BP enrollment for user {$user_id} ====");
-    
-    if (!$therapy_group_id) {
-        error_log("[User Reg BP] ✗ No therapy group ID provided. Cannot enroll.");
-        return false;
-    }
-    
-    error_log("[User Reg BP] Enrolling user {$user_id} to therapy_group {$therapy_group_id}");
-    
-    // Get the corresponding BuddyPress group ID
-    $bp_group_id = get_post_meta($therapy_group_id, '_tbc_bp_group_id', true);
-    
-    if (!$bp_group_id) {
-        error_log("[User Reg BP] ⚠ No BP group found for therapy_group {$therapy_group_id}.");
-        error_log("[User Reg BP] ✗ BP group must be created first. Cannot enroll user.");
-        error_log("[User Reg BP] Please create the BuddyPress group via Admin Dashboard.");
-        return false;
-    }
-    
-    error_log("[User Reg BP] Found BP group ID: {$bp_group_id}");
-    
-    // Verify BP group exists
-    if (function_exists('groups_get_group')) {
-        $bp_group = groups_get_group($bp_group_id);
-        if (!$bp_group || empty($bp_group->id)) {
-            error_log("[User Reg BP] ✗ BP group {$bp_group_id} does not exist in database. Cannot enroll user.");
-            return false;
-        }
-        error_log("[User Reg BP] ✓ BP group {$bp_group_id} verified: '{$bp_group->name}'");
-    }
-    
-    // Check if user is already a member
-    if (function_exists('groups_is_user_member')) {
-        if (groups_is_user_member($user_id, $bp_group_id)) {
-            error_log("[User Reg BP] ℹ User {$user_id} already member of BP group {$bp_group_id}");
-            return true; // Already enrolled, return success
-        }
-    }
-    
-    // Enroll user into BuddyPress group
-    error_log("[User Reg BP] Attempting to enroll user {$user_id} into BP group {$bp_group_id}...");
-    $joined = groups_join_group($bp_group_id, $user_id);
-    
-    if ($joined) {
-        error_log("[User Reg BP] ✓✓✓ SUCCESS! User {$user_id} enrolled into BP group {$bp_group_id} (therapy_group {$therapy_group_id})");
-        
-        // Store enrollment metadata
-        update_user_meta($user_id, '_tbc_bp_group_id', $bp_group_id);
-        update_user_meta($user_id, '_tbc_enrollment_date', current_time('mysql'));
-        
-        error_log("[User Reg BP] ==== Enrollment complete ====");
-        return true;
-    } else {
-        error_log("[User Reg BP] ✗✗✗ FAILED to enroll user {$user_id} into BP group {$bp_group_id}");
-        error_log("[User Reg BP] This could be due to: group doesn't exist, user is banned, or BuddyPress error");
-        return false;
-    }
-}
 
 function get_group_info($issue, $gender)
 {
@@ -458,6 +415,112 @@ function get_group_info($issue, $gender)
     }
 
     return false; // No group found
+}
+
+// ============================================================================
+// BUDDYPRESS ENROLLMENT FUNCTION
+// ============================================================================
+
+/**
+ * Enroll user into BuddyPress chat group
+ * 
+ * @param int $user_id WordPress user ID
+ * @param int $therapy_group_id Therapy group post ID
+ */
+function enroll_user_to_bp_chat_group($user_id, $therapy_group_id) {
+
+    // BuddyPress can be loaded later in the request; defer until bp_init if needed.
+    if (function_exists('did_action') && !did_action('bp_init')) {
+        add_action('bp_init', function () use ($user_id, $therapy_group_id) {
+            enroll_user_to_bp_chat_group($user_id, $therapy_group_id);
+        }, 20);
+        error_log("[User Reg BP] BuddyPress not ready yet (bp_init not fired). Deferring enrollment for user {$user_id}.");
+        return false;
+    }
+
+    // Only proceed if BuddyPress Groups are active.
+    if (!function_exists('bp_is_active') || !bp_is_active('groups')) {
+        error_log('[User Reg BP] BuddyPress Groups component not active. Cannot enroll user.');
+        return false;
+    }
+
+    if (!$therapy_group_id) {
+        error_log("[User Reg BP] ✗ No therapy group ID provided. Cannot enroll.");
+        return false;
+    }
+
+    $user_id = intval($user_id);
+    $therapy_group_id = intval($therapy_group_id);
+    error_log("[User Reg BP] ==== Starting BP enrollment for user {$user_id} (therapy_group {$therapy_group_id}) ====");
+
+    // Get the corresponding BuddyPress group ID.
+    $bp_group_id = get_post_meta($therapy_group_id, '_tbc_bp_group_id', true);
+
+    // Auto-create BP group when missing (matches older working behavior).
+    if (!$bp_group_id && function_exists('create_buddypress_group_for_therapy')) {
+        $therapy_post = get_post($therapy_group_id);
+        if ($therapy_post && $therapy_post->post_type === 'therapy_group') {
+            error_log("[User Reg BP] No BP group for therapy_group {$therapy_group_id}. Attempting auto-create...");
+            $created_id = create_buddypress_group_for_therapy($therapy_group_id, $therapy_post, null);
+            if ($created_id && !is_wp_error($created_id)) {
+                $bp_group_id = $created_id;
+            } else {
+                $bp_group_id = get_post_meta($therapy_group_id, '_tbc_bp_group_id', true);
+            }
+        }
+    }
+
+    if (!$bp_group_id) {
+        error_log("[User Reg BP] ✗ No BP group found/created for therapy_group {$therapy_group_id}. Cannot enroll user.");
+        return false;
+    }
+
+    $bp_group_id = intval($bp_group_id);
+    error_log("[User Reg BP] Using BP group ID: {$bp_group_id}");
+
+    // Verify BP group exists and capture status.
+    $bp_group_status = '';
+    if (function_exists('groups_get_group')) {
+        $bp_group = groups_get_group($bp_group_id);
+        if (!$bp_group || empty($bp_group->id)) {
+            error_log("[User Reg BP] ✗ BP group {$bp_group_id} does not exist in database. Cannot enroll user.");
+            return false;
+        }
+        $bp_group_status = isset($bp_group->status) ? $bp_group->status : '';
+        error_log("[User Reg BP] ✓ BP group verified: '{$bp_group->name}' (status: {$bp_group_status})");
+    }
+
+    // Check if user is already a member.
+    if (function_exists('groups_is_user_member') && groups_is_user_member($user_id, $bp_group_id)) {
+        error_log("[User Reg BP] ℹ User {$user_id} already member of BP group {$bp_group_id}");
+        return true;
+    }
+
+    // IMPORTANT: your BP groups are created as 'private' in admin code.
+    // groups_join_group() will only auto-join PUBLIC groups; private/hidden groups create a membership request.
+    // To truly enroll the user, use groups_add_member() when available.
+    $enrolled = false;
+    if (function_exists('groups_add_member')) {
+        error_log("[User Reg BP] Attempting groups_add_member for user {$user_id} into BP group {$bp_group_id}...");
+        $enrolled = (bool) groups_add_member($user_id, $bp_group_id);
+    } elseif (function_exists('groups_join_group')) {
+        error_log("[User Reg BP] groups_add_member unavailable; falling back to groups_join_group for user {$user_id} into BP group {$bp_group_id}...");
+        $enrolled = (bool) groups_join_group($bp_group_id, $user_id);
+    } else {
+        error_log('[User Reg BP] No BuddyPress group membership functions available (groups_add_member/groups_join_group).');
+        return false;
+    }
+
+    if ($enrolled) {
+        error_log("[User Reg BP] ✓✓✓ SUCCESS! User {$user_id} enrolled into BP group {$bp_group_id} (therapy_group {$therapy_group_id})");
+        update_user_meta($user_id, '_tbc_bp_group_id', $bp_group_id);
+        update_user_meta($user_id, '_tbc_enrollment_date', current_time('mysql'));
+        error_log("[User Reg BP] ==== Enrollment complete ====");
+        return true;
+    }
+
+    error_log("[User Reg BP] ✗✗✗ FAILED to enroll user {$user_id} into BP group {$bp_group_id} (status: {$bp_group_status})");
+    return false;
 }
 
 // ============================================================================
@@ -1462,6 +1525,21 @@ function handle_therapy_custom_registration()
     $selected_group_id = $posted_group_id > 0 ? $posted_group_id : (isset($_SESSION['selected_group_id']) ? intval($_SESSION['selected_group_id']) : 0);
     error_log("Custom Reg - Calling assign_user_to_active_group with selected_group_id: $selected_group_id");
     assign_user_to_active_group($user_id, [], $selected_group_id);
+    
+    // ✅ ENROLL USER INTO BUDDYPRESS CHAT GROUP IMMEDIATELY
+    $final_assigned_group = get_user_meta($user_id, 'assigned_group', true);
+    error_log("[User Reg Custom] ✓ User {$user_id} assigned to therapy_group: {$final_assigned_group}");
+    
+    if ($final_assigned_group) {
+        $enrollment_result = enroll_user_to_bp_chat_group($user_id, $final_assigned_group);
+        if ($enrollment_result) {
+            error_log("[User Reg Custom] ✓✓✓ BP enrollment successful for user {$user_id}");
+        } else {
+            error_log("[User Reg Custom] ✗✗✗ BP enrollment FAILED for user {$user_id} - Check enroll_user_to_bp_chat_group logs above");
+        }
+    } else {
+        error_log("[User Reg Custom] ✗ No therapy group assigned - BP enrollment skipped for user {$user_id}");
+    }
 
     // Send registration confirmation email
     send_therapy_registration_email($email, $first_name);
@@ -1475,7 +1553,7 @@ function handle_therapy_custom_registration()
 
     // Determine redirect URL
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-    $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-2') : home_url('/thank-you');
+    $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
 
     error_log("Custom Therapy Registration complete for user ID: $user_id");
 
