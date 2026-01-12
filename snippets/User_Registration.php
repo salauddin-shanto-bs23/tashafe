@@ -300,10 +300,10 @@ function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
 
                 // Ensure values are strings, not arrays
                 if (is_array($group_issue)) {
-                    $group_issue = !empty($group_issue) ? $group_issue[0] : '';
+                    $group_issue = isset($group_issue[0]) ? $group_issue[0] : (reset($group_issue) ?: '');
                 }
                 if (is_array($group_gender)) {
-                    $group_gender = !empty($group_gender) ? $group_gender[0] : '';
+                    $group_gender = isset($group_gender[0]) ? $group_gender[0] : (reset($group_gender) ?: '');
                 }
 
                 if ($group_issue) {
@@ -339,10 +339,10 @@ function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
 
                     // Ensure values are strings, not arrays
                     if (is_array($group_issue)) {
-                        $group_issue = !empty($group_issue) ? $group_issue[0] : '';
+                        $group_issue = isset($group_issue[0]) ? $group_issue[0] : (reset($group_issue) ?: '');
                     }
                     if (is_array($group_gender)) {
-                        $group_gender = !empty($group_gender) ? $group_gender[0] : '';
+                        $group_gender = isset($group_gender[0]) ? $group_gender[0] : (reset($group_gender) ?: '');
                     }
 
                     if ($group_issue && empty($issue)) {
