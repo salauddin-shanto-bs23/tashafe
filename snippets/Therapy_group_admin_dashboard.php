@@ -41,10 +41,24 @@ function handle_edit_therapy_group()
   update_field('session_expiry_date', $session_expiry_date, $group_id);
 
   // ✅ UPDATE BP GROUP DESCRIPTION AFTER FIELDS ARE SAVED
-  if (function_exists('tbc_update_bp_group_description')) {
-    $bp_group_id = get_post_meta($group_id, '_tbc_bp_group_id', true);
-    if ($bp_group_id) {
-      tbc_update_bp_group_description($group_id, $bp_group_id);
+  $bp_group_id = get_post_meta($group_id, '_tbc_bp_group_id', true);
+  if ($bp_group_id) {
+    // Keep BP group meta in sync for chat activation/expiry checks
+    if (function_exists('groups_update_groupmeta')) {
+      tbc_persist_therapy_session_meta_to_bp_group($bp_group_id, $group_id, [
+        'issue_type' => get_field('issue_type', $group_id) ?: get_post_meta($group_id, 'issue_type', true),
+        'gender' => get_field('gender', $group_id) ?: get_post_meta($group_id, 'gender', true),
+        'start_date' => $start_date,
+        'end_date' => $end_date,
+        'max_members' => $max_members,
+        'session_start_date' => $session_start_date,
+        'session_expiry_date' => $session_expiry_date,
+        'post_title' => get_the_title($group_id),
+      ]);
+    }
+
+    if (function_exists('update_bp_group_description')) {
+      update_bp_group_description($group_id, $bp_group_id);
       error_log("[Admin Dashboard] Manually updated BP group description for therapy_group {$group_id}");
     }
   }
@@ -118,7 +132,19 @@ function handle_create_sub_group()
 
   // ✅ CREATE BUDDYPRESS GROUP IMMEDIATELY
   $post = get_post($post_id);
-  create_buddypress_group_for_therapy($post_id, $post, $session_expiry_date);
+  $therapy_form_data = [
+    'post_title' => $post ? $post->post_title : $new_post['post_title'],
+    'issue_type' => $issue_type,
+    'gender' => $gender,
+    'start_date' => $start_date,
+    'end_date' => $end_date,
+    'max_members' => $max_members,
+    'group_number' => count($existing_groups) + 1,
+    'group_status' => 'active',
+    'session_start_date' => $session_start_date,
+    'session_expiry_date' => $session_expiry_date,
+  ];
+  create_buddypress_group_for_therapy($post_id, $post, $session_expiry_date, $therapy_form_data);
   error_log("[Admin Dashboard] Created BP group for therapy_group {$post_id} with session_expiry_date: {$session_expiry_date}");
 
   // Notify waiting list users
@@ -376,9 +402,10 @@ function get_group_availability_status($group_id)
  * @param int $therapy_group_id Therapy group post ID
  * @param WP_Post $post Post object
  * @param string $session_expiry_date_override Session expiry date (passed directly to avoid ACF timing issues)
+ * @param array|null $therapy_form_data Therapy session form payload (preferred source of truth)
  * @return int|false BP group ID on success, false on failure
  */
-function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_expiry_date_override = null) {
+function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_expiry_date_override = null, $therapy_form_data = null) {
     
     // Only proceed if BuddyPress is active
     if (!function_exists('groups_create_group') || !function_exists('bp_is_active') || !bp_is_active('groups')) {
@@ -392,13 +419,21 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     $existing_bp_group_id = get_post_meta($therapy_group_id, '_tbc_bp_group_id', true);
     
     if ($existing_bp_group_id) {
-        if (function_exists('groups_get_group')) {
-            $existing_group = groups_get_group($existing_bp_group_id);
-            if ($existing_group && !empty($existing_group->id)) {
-                error_log("[BP Create] BP group already exists: {$existing_bp_group_id}");
-                return $existing_bp_group_id;
-            }
+      if (function_exists('groups_get_group')) {
+        $existing_group = groups_get_group($existing_bp_group_id);
+        if ($existing_group && !empty($existing_group->id)) {
+          // Even if the BP group exists, make sure meta/description are fully synced.
+          if (function_exists('groups_update_groupmeta')) {
+            tbc_persist_therapy_session_meta_to_bp_group($existing_bp_group_id, $therapy_group_id, is_array($therapy_form_data) ? $therapy_form_data : []);
+          }
+          if (function_exists('update_bp_group_description')) {
+            update_bp_group_description($therapy_group_id, $existing_bp_group_id);
+          }
+
+          error_log("[BP Create] BP group already exists: {$existing_bp_group_id}");
+          return $existing_bp_group_id;
         }
+      }
     }
     
     // Get therapy group details
@@ -406,12 +441,15 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     
     // Get session expiry date - PRIORITY: Use passed value from form data
     $session_expiry = '';
-    if (!empty($session_expiry_date_override)) {
-        $session_expiry = $session_expiry_date_override;
-        error_log("[BP Create] ✓ Using PASSED session_expiry_date: '{$session_expiry}' (type: " . gettype($session_expiry_date_override) . ")");
+    if (is_array($therapy_form_data) && !empty($therapy_form_data['session_expiry_date'])) {
+      $session_expiry = sanitize_text_field($therapy_form_data['session_expiry_date']);
+      error_log("[BP Create] ✓ Using FORM session_expiry_date: '{$session_expiry}'");
+    } else if (!empty($session_expiry_date_override)) {
+      $session_expiry = $session_expiry_date_override;
+      error_log("[BP Create] ✓ Using PASSED session_expiry_date: '{$session_expiry}' (type: " . gettype($session_expiry_date_override) . ")");
     } else if (function_exists('get_field')) {
-        $session_expiry = get_field('session_expiry_date', $therapy_group_id);
-        error_log("[BP Create] Got session_expiry_date from ACF: '{$session_expiry}'");
+      $session_expiry = get_field('session_expiry_date', $therapy_group_id);
+      error_log("[BP Create] Got session_expiry_date from ACF: '{$session_expiry}'");
     }
     
     if (empty($session_expiry)) {
@@ -420,62 +458,7 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     }
     
     // Build group description with expiry date
-    $description = 'Therapy group chat.';
-    if (!empty($session_expiry)) {
-        error_log("[BP Create] Processing expiry date: '{$session_expiry}' (type: " . gettype($session_expiry) . ", value: " . var_export($session_expiry, true) . ")");
-        
-        $expiry_date_obj = null;
-        
-        // If it's a numeric timestamp (ACF Number field stores Unix timestamp)
-        if (is_numeric($session_expiry)) {
-            error_log("[BP Create] Detected numeric timestamp: {$session_expiry}");
-            try {
-                $expiry_date_obj = new DateTime();
-                $expiry_date_obj->setTimestamp((int)$session_expiry);
-                error_log("[BP Create] ✓ Created DateTime from timestamp");
-            } catch (Exception $e) {
-                error_log("[BP Create] ✗ Failed to create DateTime from timestamp: " . $e->getMessage());
-            }
-        }
-        
-        // Try format 1: Y-m-d (2026-01-15) - from HTML date input
-        if (!$expiry_date_obj) {
-            $expiry_date_obj = DateTime::createFromFormat('Y-m-d', $session_expiry);
-            if ($expiry_date_obj !== false) {
-                error_log("[BP Create] ✓ Parsed date with Y-m-d format");
-            }
-        }
-        
-        // Try format 2: Ymd (20260115)
-        if ($expiry_date_obj === false) {
-            $expiry_date_obj = DateTime::createFromFormat('Ymd', $session_expiry);
-            if ($expiry_date_obj !== false) {
-                error_log("[BP Create] ✓ Parsed date with Ymd format");
-            }
-        }
-        
-        // Try format 3: strtotime as final fallback
-        if ($expiry_date_obj === false && strtotime($session_expiry)) {
-            try {
-                $expiry_date_obj = new DateTime($session_expiry);
-                error_log("[BP Create] ✓ Parsed date with strtotime/DateTime");
-            } catch (Exception $e) {
-                error_log("[BP Create] ✗ DateTime parsing failed: " . $e->getMessage());
-                $expiry_date_obj = null;
-            }
-        }
-        
-        if ($expiry_date_obj && $expiry_date_obj instanceof DateTime) {
-            $expiry_date_obj->modify('+1 day');
-            $expiry_notice_date = $expiry_date_obj->format('Y-m-d');
-            $description = 'This group will expire on ' . $expiry_notice_date . '.';
-            error_log("[BP Create] ✓✓ SUCCESS - Description set to: '{$description}'");
-        } else {
-            error_log("[BP Create] ✗✗ FAILED to parse expiry date '{$session_expiry}' - using default description");
-        }
-    } else {
-        error_log("[BP Create] ⚠ No session_expiry date available - using default description");
-    }
+    $description = tbc_build_bp_group_description_from_therapy_data($therapy_group_id, $therapy_form_data, $session_expiry);
     
     // Get creator
     $creator_id = get_current_user_id();
@@ -511,9 +494,14 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     update_post_meta($therapy_group_id, '_tbc_bp_group_id', $bp_group_id);
     groups_update_groupmeta($bp_group_id, '_tbc_therapy_group_id', $therapy_group_id);
     
-    // Store expiry date in BP group meta
-    if (!empty($session_expiry)) {
+    // Persist therapy session data as BuddyPress group meta (critical for chat activation/expiry logic)
+    if (function_exists('groups_update_groupmeta')) {
+      tbc_persist_therapy_session_meta_to_bp_group($bp_group_id, $therapy_group_id, is_array($therapy_form_data) ? $therapy_form_data : []);
+
+      // Back-compat key used elsewhere in this file
+      if (!empty($session_expiry)) {
         groups_update_groupmeta($bp_group_id, '_tbc_expiry_date', sanitize_text_field($session_expiry));
+      }
     }
     
     groups_update_groupmeta($bp_group_id, '_tbc_status', 'active');
@@ -526,6 +514,111 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     error_log("[BP Create] ==== BP group creation complete ====");
     return $bp_group_id;
 }
+
+  /**
+   * Persist therapy-session form data to BuddyPress group meta.
+   * Stores each field as group meta so Better Messages capability filtering can make decisions reliably.
+   */
+  function tbc_persist_therapy_session_meta_to_bp_group($bp_group_id, $therapy_group_id, $therapy_form_data) {
+    if (!function_exists('groups_update_groupmeta') || empty($bp_group_id)) {
+      return;
+    }
+
+    $therapy_form_data = is_array($therapy_form_data) ? $therapy_form_data : [];
+
+    $whitelist = [
+      'session_start_date',
+      'session_expiry_date',
+      'post_title',
+      'issue_type',
+      'gender',
+      'start_date',
+      'end_date',
+      'max_members',
+      'group_number',
+      'group_status',
+    ];
+
+    // Prefer passed data; fall back to stored values if missing.
+    $defaults = [
+      'post_title' => get_the_title($therapy_group_id),
+      'issue_type' => function_exists('get_field') ? (get_field('issue_type', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'issue_type', true) ?: ''),
+      'gender' => function_exists('get_field') ? (get_field('gender', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'gender', true) ?: ''),
+      'start_date' => function_exists('get_field') ? (get_field('start_date', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'start_date', true) ?: ''),
+      'end_date' => function_exists('get_field') ? (get_field('end_date', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'end_date', true) ?: ''),
+      'max_members' => function_exists('get_field') ? (get_field('max_members', $therapy_group_id) ?: 0) : (get_post_meta($therapy_group_id, 'max_members', true) ?: 0),
+      'group_number' => function_exists('get_field') ? (get_field('group_number', $therapy_group_id) ?: 0) : (get_post_meta($therapy_group_id, 'group_number', true) ?: 0),
+      'group_status' => function_exists('get_field') ? (get_field('group_status', $therapy_group_id) ?: 'active') : (get_post_meta($therapy_group_id, 'group_status', true) ?: 'active'),
+      'session_start_date' => function_exists('get_field') ? (get_field('session_start_date', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'session_start_date', true) ?: ''),
+      'session_expiry_date' => function_exists('get_field') ? (get_field('session_expiry_date', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'session_expiry_date', true) ?: ''),
+    ];
+
+    foreach ($whitelist as $key) {
+      $value = array_key_exists($key, $therapy_form_data) ? $therapy_form_data[$key] : (array_key_exists($key, $defaults) ? $defaults[$key] : '');
+
+      if (is_array($value) || is_object($value)) {
+        continue;
+      }
+
+      if ($key === 'max_members' || $key === 'group_number') {
+        $value = intval($value);
+      } else {
+        $value = sanitize_text_field((string)$value);
+      }
+
+      groups_update_groupmeta($bp_group_id, '_tbc_' . $key, $value);
+    }
+  }
+
+  /**
+   * Build BP group description from therapy session form data.
+   * This avoids ACF/meta timing issues by using the same payload that is persisted to BP group meta.
+   */
+  function tbc_build_bp_group_description_from_therapy_data($therapy_group_id, $therapy_form_data, $session_expiry_fallback = '') {
+    $therapy_form_data = is_array($therapy_form_data) ? $therapy_form_data : [];
+    $session_start = !empty($therapy_form_data['session_start_date']) ? sanitize_text_field($therapy_form_data['session_start_date']) : '';
+    $session_expiry = !empty($therapy_form_data['session_expiry_date']) ? sanitize_text_field($therapy_form_data['session_expiry_date']) : sanitize_text_field((string)$session_expiry_fallback);
+
+    $description = 'Therapy group chat.';
+
+    $expiry_date_obj = null;
+    if (!empty($session_expiry)) {
+      if (is_numeric($session_expiry)) {
+        try {
+          $expiry_date_obj = new DateTime();
+          $expiry_date_obj->setTimestamp((int)$session_expiry);
+        } catch (Exception $e) {
+          $expiry_date_obj = null;
+        }
+      }
+      if (!$expiry_date_obj) {
+        $expiry_date_obj = DateTime::createFromFormat('Y-m-d', $session_expiry);
+      }
+      if ($expiry_date_obj === false) {
+        $expiry_date_obj = DateTime::createFromFormat('Ymd', $session_expiry);
+      }
+      if ($expiry_date_obj === false && strtotime($session_expiry)) {
+        try {
+          $expiry_date_obj = new DateTime($session_expiry);
+        } catch (Exception $e) {
+          $expiry_date_obj = null;
+        }
+      }
+    }
+
+    if ($expiry_date_obj && $expiry_date_obj instanceof DateTime) {
+      $expiry_date_obj->modify('+1 day');
+      $expiry_notice_date = $expiry_date_obj->format('Y-m-d');
+
+      if (!empty($session_start) && !empty($session_expiry)) {
+        $description = 'Therapy session: ' . $session_start . ' to ' . $session_expiry . '. This group will expire on ' . $expiry_notice_date . '.';
+      } else {
+        $description = 'This group will expire on ' . $expiry_notice_date . '.';
+      }
+    }
+
+    return sanitize_textarea_field($description);
+  }
 
 /**
  * Get all necessary information about a therapy group for user enrollment
@@ -3263,20 +3356,20 @@ function update_bp_group_description($therapy_group_id, $bp_group_id) {
     if (empty($session_expiry)) {
         $session_expiry = get_post_meta($therapy_group_id, 'session_expiry_date', true);
     }
+
+  $session_start = '';
+  if (function_exists('get_field')) {
+    $session_start = get_field('session_start_date', $therapy_group_id);
+  }
+  if (empty($session_start)) {
+    $session_start = get_post_meta($therapy_group_id, 'session_start_date', true);
+  }
     
     if (!empty($session_expiry)) {
-        $expiry_date_obj = DateTime::createFromFormat('Y-m-d', $session_expiry);
-        if (!$expiry_date_obj) {
-            $expiry_date_obj = DateTime::createFromFormat('Ymd', $session_expiry);
-        }
-        if (!$expiry_date_obj && strtotime($session_expiry)) {
-            $expiry_date_obj = new DateTime($session_expiry);
-        }
-        
-        if ($expiry_date_obj) {
-            $expiry_date_obj->modify('+1 day');
-            $expiry_notice_date = $expiry_date_obj->format('Y-m-d');
-            $new_description = 'This group will expire on ' . $expiry_notice_date . '.';
+    $new_description = tbc_build_bp_group_description_from_therapy_data($therapy_group_id, [
+      'session_start_date' => $session_start,
+      'session_expiry_date' => $session_expiry,
+    ], $session_expiry);
             
             global $wpdb, $bp;
             $table_name = $bp->groups->table_name;
@@ -3291,9 +3384,14 @@ function update_bp_group_description($therapy_group_id, $bp_group_id) {
             
             if ($updated !== false) {
                 groups_update_groupmeta($bp_group_id, '_tbc_expiry_date', $session_expiry);
+        if (function_exists('groups_update_groupmeta')) {
+          tbc_persist_therapy_session_meta_to_bp_group($bp_group_id, $therapy_group_id, [
+            'session_start_date' => $session_start,
+            'session_expiry_date' => $session_expiry,
+          ]);
+        }
                 error_log("[BP Update] ✓ Updated BP group {$bp_group_id} description");
             }
-        }
     }
 }
 
@@ -3537,12 +3635,29 @@ function tbc_acf_save_post($post_id) {
         // Get the expiry date from the just-saved ACF field
         $session_expiry = function_exists('get_field') ? get_field('session_expiry_date', $post_id) : get_post_meta($post_id, 'session_expiry_date', true);
         error_log("[TBC] Got session_expiry_date after ACF save: '{$session_expiry}'");
-        
-        create_buddypress_group_for_therapy($post_id, $post, $session_expiry);
+
+        $therapy_form_data = [
+          'post_title' => $post ? $post->post_title : get_the_title($post_id),
+          'issue_type' => function_exists('get_field') ? (get_field('issue_type', $post_id) ?: '') : (get_post_meta($post_id, 'issue_type', true) ?: ''),
+          'gender' => function_exists('get_field') ? (get_field('gender', $post_id) ?: '') : (get_post_meta($post_id, 'gender', true) ?: ''),
+          'start_date' => function_exists('get_field') ? (get_field('start_date', $post_id) ?: '') : (get_post_meta($post_id, 'start_date', true) ?: ''),
+          'end_date' => function_exists('get_field') ? (get_field('end_date', $post_id) ?: '') : (get_post_meta($post_id, 'end_date', true) ?: ''),
+          'max_members' => function_exists('get_field') ? (get_field('max_members', $post_id) ?: 0) : (get_post_meta($post_id, 'max_members', true) ?: 0),
+          'group_number' => function_exists('get_field') ? (get_field('group_number', $post_id) ?: 0) : (get_post_meta($post_id, 'group_number', true) ?: 0),
+          'group_status' => function_exists('get_field') ? (get_field('group_status', $post_id) ?: 'active') : (get_post_meta($post_id, 'group_status', true) ?: 'active'),
+          'session_start_date' => function_exists('get_field') ? (get_field('session_start_date', $post_id) ?: '') : (get_post_meta($post_id, 'session_start_date', true) ?: ''),
+          'session_expiry_date' => $session_expiry,
+        ];
+
+        create_buddypress_group_for_therapy($post_id, $post, $session_expiry, $therapy_form_data);
     } else {
         // BP group exists - update description if expiry date changed
         error_log("[TBC] ACF fields updated for therapy_group {$post_id}, updating BP group {$existing_bp_group_id}");
         update_bp_group_description($post_id, $existing_bp_group_id);
+
+        if (function_exists('groups_update_groupmeta')) {
+          tbc_persist_therapy_session_meta_to_bp_group($existing_bp_group_id, $post_id, []);
+        }
     }
 }
 
@@ -3577,8 +3692,21 @@ function tbc_fallback_create_bp_group($therapy_group_id, $post, $update) {
             $session_expiry = get_field('session_expiry_date', $therapy_group_id);
         }
         error_log("[TBC] Fallback: Got session_expiry_date: '{$session_expiry}'");
-        
-        create_buddypress_group_for_therapy($therapy_group_id, $post, $session_expiry);
+
+        $therapy_form_data = [
+          'post_title' => $post ? $post->post_title : get_the_title($therapy_group_id),
+          'issue_type' => function_exists('get_field') ? (get_field('issue_type', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'issue_type', true) ?: ''),
+          'gender' => function_exists('get_field') ? (get_field('gender', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'gender', true) ?: ''),
+          'start_date' => function_exists('get_field') ? (get_field('start_date', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'start_date', true) ?: ''),
+          'end_date' => function_exists('get_field') ? (get_field('end_date', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'end_date', true) ?: ''),
+          'max_members' => function_exists('get_field') ? (get_field('max_members', $therapy_group_id) ?: 0) : (get_post_meta($therapy_group_id, 'max_members', true) ?: 0),
+          'group_number' => function_exists('get_field') ? (get_field('group_number', $therapy_group_id) ?: 0) : (get_post_meta($therapy_group_id, 'group_number', true) ?: 0),
+          'group_status' => function_exists('get_field') ? (get_field('group_status', $therapy_group_id) ?: 'active') : (get_post_meta($therapy_group_id, 'group_status', true) ?: 'active'),
+          'session_start_date' => function_exists('get_field') ? (get_field('session_start_date', $therapy_group_id) ?: '') : (get_post_meta($therapy_group_id, 'session_start_date', true) ?: ''),
+          'session_expiry_date' => $session_expiry,
+        ];
+
+        create_buddypress_group_for_therapy($therapy_group_id, $post, $session_expiry, $therapy_form_data);
     }
 }
 
