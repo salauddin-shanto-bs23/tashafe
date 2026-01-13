@@ -123,27 +123,31 @@ function handle_create_sub_group()
   update_field('start_date', $start_date, $post_id);
   update_field('end_date', $end_date, $post_id);
   update_field('max_members', $max_members, $post_id);
-  update_field('group_number', count($existing_groups) + 1, $post_id);
   update_field('session_start_date', $session_start_date, $post_id);
   update_field('session_expiry_date', $session_expiry_date, $post_id);
-  update_field('group_status', 'active', $post_id);
 
-  error_log("[Admin Dashboard] About to create BP group with session_expiry_date: '{$session_expiry_date}' (type: " . gettype($session_expiry_date) . ")");
+  // Determine group number
+  $group_number = count($existing_groups) + 1;
+  update_field('group_number', $group_number, $post_id);
+  update_field('group_status', 'open', $post_id);
 
-  // ✅ CREATE BUDDYPRESS GROUP IMMEDIATELY
+  // Ensure post object is loaded
   $post = get_post($post_id);
+
+  // Pass the captured form payload into BP group creation (avoids ACF timing issues)
   $therapy_form_data = [
-    'post_title' => $post ? $post->post_title : $new_post['post_title'],
+    'post_title' => get_the_title($post_id),
     'issue_type' => $issue_type,
     'gender' => $gender,
     'start_date' => $start_date,
     'end_date' => $end_date,
     'max_members' => $max_members,
-    'group_number' => count($existing_groups) + 1,
-    'group_status' => 'active',
+    'group_number' => $group_number,
+    'group_status' => 'open',
     'session_start_date' => $session_start_date,
     'session_expiry_date' => $session_expiry_date,
   ];
+
   create_buddypress_group_for_therapy($post_id, $post, $session_expiry_date, $therapy_form_data);
   error_log("[Admin Dashboard] Created BP group for therapy_group {$post_id} with session_expiry_date: {$session_expiry_date}");
 
@@ -607,9 +611,18 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     }
 
     if ($expiry_date_obj && $expiry_date_obj instanceof DateTime) {
-      $expiry_date_obj->modify('+1 day');
-      $expiry_notice_date = $expiry_date_obj->format('Y-m-d');
+      // Chat is enabled through (session_expiry_date + 1 day). It expires after that.
+      $expiry_plus_one = clone $expiry_date_obj;
+      $expiry_plus_one->modify('+1 day');
 
+      $today = current_time('Y-m-d');
+      $expiry_plus_one_ymd = $expiry_plus_one->format('Y-m-d');
+
+      if (!empty($today) && $today > $expiry_plus_one_ymd) {
+        return 'This chat has expired';
+      }
+
+      $expiry_notice_date = $expiry_plus_one_ymd;
       if (!empty($session_start) && !empty($session_expiry)) {
         $description = 'Therapy session: ' . $session_start . ' to ' . $session_expiry . '. This group will expire on ' . $expiry_notice_date . '.';
       } else {
@@ -3753,21 +3766,56 @@ function tbc_process_expired_groups() {
     $today = current_time('Y-m-d');
     
     foreach ($therapy_groups as $therapy_group) {
-        $expiry_date = function_exists('get_field') 
-            ? get_field('session_expiry_date', $therapy_group->ID) 
-            : get_post_meta($therapy_group->ID, 'session_expiry_date', true);
+        $expiry_date = function_exists('get_field')
+          ? get_field('session_expiry_date', $therapy_group->ID)
+          : get_post_meta($therapy_group->ID, 'session_expiry_date', true);
         
         if (!$expiry_date) {
             continue;
         }
         
-        // Check if expired
-        if ($expiry_date < $today) {
+        // Chat expires AFTER (session_expiry_date + 1 day)
+        $expiry_dt = null;
+        if (is_numeric($expiry_date)) {
+          try {
+            $expiry_dt = new DateTime();
+            $expiry_dt->setTimestamp((int)$expiry_date);
+          } catch (Exception $e) {
+            $expiry_dt = null;
+          }
+        }
+        if (!$expiry_dt) {
+          $expiry_dt = DateTime::createFromFormat('Y-m-d', $expiry_date);
+        }
+        if ($expiry_dt === false) {
+          $expiry_dt = DateTime::createFromFormat('Ymd', $expiry_date);
+        }
+        if ($expiry_dt === false && strtotime($expiry_date)) {
+          try {
+            $expiry_dt = new DateTime($expiry_date);
+          } catch (Exception $e) {
+            $expiry_dt = null;
+          }
+        }
+
+        if (!$expiry_dt) {
+          continue;
+        }
+
+        $expiry_plus_one = clone $expiry_dt;
+        $expiry_plus_one->modify('+1 day');
+        $expiry_plus_one_ymd = $expiry_plus_one->format('Y-m-d');
+
+        // Expired if today is after expiry+1 day
+        if (!empty($today) && $today > $expiry_plus_one_ymd) {
             $bp_group_id = get_post_meta($therapy_group->ID, '_tbc_bp_group_id', true);
             
             if ($bp_group_id) {
                 // Option 1: Archive the group (set status to inactive)
                 groups_update_groupmeta($bp_group_id, '_tbc_status', 'expired');
+
+            // Update group description so users see the expiry message in chat UI
+            tbc_set_bp_group_description_expired($bp_group_id);
                 
                 // Option 2: Delete the group completely (uncomment if preferred)
                 // groups_delete_group($bp_group_id);
@@ -3778,6 +3826,481 @@ function tbc_process_expired_groups() {
         }
     }
 }
+
+    // ============================================================================
+    // CHAT ACTIVATION & EXPIRY (Better Messages capability filtering - Option 2)
+    // ============================================================================
+
+    /**
+     * Frontend: Disable Better Messages composer on BP group messages page when chat is not active.
+     * Users can still read history, but cannot type/send.
+     */
+    add_action('wp_enqueue_scripts', 'tbc_enqueue_bm_chat_lock_assets', 20);
+
+    function tbc_enqueue_bm_chat_lock_assets() {
+      if (!function_exists('bp_is_groups_component') || !bp_is_groups_component()) {
+        return;
+      }
+      if (!function_exists('bp_is_current_action') || !bp_is_current_action('bp-messages')) {
+        return;
+      }
+      if (!is_user_logged_in()) {
+        return;
+      }
+      if (!function_exists('bp_get_current_group_id')) {
+        return;
+      }
+
+      $bp_group_id = intval(bp_get_current_group_id());
+      if ($bp_group_id <= 0) {
+        return;
+      }
+
+      // Prefer server-side computed state (no extra round-trip).
+      $state = function_exists('tbc_get_chat_state_for_bp_group') ? tbc_get_chat_state_for_bp_group($bp_group_id) : 'missing_dates';
+
+      $session_start = function_exists('groups_get_groupmeta') ? groups_get_groupmeta($bp_group_id, '_tbc_session_start_date', true) : '';
+      $session_expiry = function_exists('groups_get_groupmeta') ? groups_get_groupmeta($bp_group_id, '_tbc_session_expiry_date', true) : '';
+      if (empty($session_expiry) && function_exists('groups_get_groupmeta')) {
+        $session_expiry = groups_get_groupmeta($bp_group_id, '_tbc_expiry_date', true);
+      }
+
+      $expiry_plus_one = '';
+      $expiry_dt = tbc_parse_date_to_datetime($session_expiry);
+      if ($expiry_dt) {
+        $expiry_plus_one_dt = clone $expiry_dt;
+        $expiry_plus_one_dt->modify('+1 day');
+        $expiry_plus_one = $expiry_plus_one_dt->format('Y-m-d');
+      }
+
+      $css = '.tbc-chat-lock-banner{margin:10px 0;padding:10px 12px;border:1px solid #e1e1e1;border-radius:6px;background:#f9f9f9;font-size:14px;line-height:1.4;}'
+         . '.tbc-chat-lock-banner strong{font-weight:600;}'
+         . '.tbc-bm-disabled{opacity:.6;cursor:not-allowed !important;}'
+         . '.tbc-bm-hide{display:none !important;}';
+
+      wp_register_style('tbc-chat-lock', false);
+      wp_enqueue_style('tbc-chat-lock');
+      wp_add_inline_style('tbc-chat-lock', $css);
+
+      // Attach inline script to jQuery to avoid path/URL assumptions.
+      wp_enqueue_script('jquery');
+      $payload = [
+        'ajaxUrl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('tbc_chat_state'),
+        'groupId' => $bp_group_id,
+        'groupSlug' => function_exists('bp_get_current_group_slug') ? (string)bp_get_current_group_slug() : '',
+        'initialState' => (string)$state,
+        'sessionStart' => (string)$session_start,
+        'sessionExpiry' => (string)$session_expiry,
+        'expiryPlusOne' => (string)$expiry_plus_one,
+        'today' => current_time('Y-m-d'),
+      ];
+
+      $js = "(function($){\n";
+      $js .= "  var cfg = window.TBC_CHAT_LOCK || {};\n";
+      $js .= "  if (!cfg || !cfg.groupId) { return; }\n";
+      $js .= "\n";
+      $js .= "  // Init once per page load to avoid reactive DOM loops.\n";
+      $js .= "  if (window.__tbcChatLockInitialized) { return; }\n";
+      $js .= "  window.__tbcChatLockInitialized = true;\n";
+      $js .= "\n";
+      $js .= "  var stateData = null;\n";
+      $js .= "  var fetchPromise = null;\n";
+      $js .= "  var handlersBound = false;\n";
+      $js .= "  var scheduled = false;\n";
+      $js .= "\n";
+      $js .= "  function cacheKey(){ return 'tbc_chat_state_' + cfg.groupId + '_' + (cfg.today || ''); }\n";
+      $js .= "  function readCache(){ try { var raw = localStorage.getItem(cacheKey()); return raw ? JSON.parse(raw) : null; } catch(e){ return null; } }\n";
+      $js .= "  function writeCache(obj){ try { localStorage.setItem(cacheKey(), JSON.stringify(obj)); } catch(e){} }\n";
+      $js .= "\n";
+      $js .= "  function bannerText(state, data){\n";
+      $js .= "    if (state === 'expired') return 'This chat has expired';\n";
+      $js .= "    if (state === 'before_start') {\n";
+      $js .= "      var start = (data && data.session_start_date) ? data.session_start_date : (cfg.sessionStart || '');\n";
+      $js .= "      return start ? ('Chat opens on ' + start) : 'Chat is not available yet';\n";
+      $js .= "    }\n";
+      $js .= "    return 'Chat is not available.';\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function ensureBanner(text){\n";
+      $js .= "    var existing = document.querySelector('.tbc-chat-lock-banner');\n";
+      $js .= "    if (existing) { existing.textContent = text; return existing; }\n";
+      $js .= "    var reply = document.querySelector('.bm-reply');\n";
+      $js .= "    if (!reply || !reply.parentNode) return null;\n";
+      $js .= "    var div = document.createElement('div');\n";
+      $js .= "    div.className = 'tbc-chat-lock-banner';\n";
+      $js .= "    div.textContent = text;\n";
+      $js .= "    reply.parentNode.insertBefore(div, reply);\n";
+      $js .= "    return div;\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function lockComposer(state, data){\n";
+      $js .= "    var reply = document.querySelector('.bm-reply');\n";
+      $js .= "    if (!reply) return;\n";
+      $js .= "\n";
+      $js .= "    // Avoid repeating work on the same DOM node.\n";
+      $js .= "    if (reply.dataset && reply.dataset.tbcLocked === String(state)) { return; }\n";
+      $js .= "    if (reply.dataset) reply.dataset.tbcLocked = String(state);\n";
+      $js .= "\n";
+      $js .= "    ensureBanner(bannerText(state, data));\n";
+      $js .= "    reply.classList.add('tbc-bm-hide');\n";
+      $js .= "\n";
+      $js .= "    var editor = reply.querySelector('.bm-editor-content');\n";
+      $js .= "    if (editor) { editor.setAttribute('contenteditable', 'false'); editor.setAttribute('aria-disabled', 'true'); }\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function unlockComposer(){\n";
+      $js .= "    var reply = document.querySelector('.bm-reply');\n";
+      $js .= "    var banner = document.querySelector('.tbc-chat-lock-banner');\n";
+      $js .= "    if (banner) banner.parentNode && banner.parentNode.removeChild(banner);\n";
+      $js .= "    if (reply) { reply.classList.remove('tbc-bm-hide'); if (reply.dataset) { delete reply.dataset.tbcLocked; } }\n";
+      $js .= "\n";
+      $js .= "    var editor = document.querySelector('.bm-reply .bm-editor-content');\n";
+      $js .= "    if (editor) { editor.setAttribute('contenteditable', 'true'); editor.removeAttribute('aria-disabled'); }\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function apply(){\n";
+      $js .= "    var data = stateData || { state: cfg.initialState, session_start_date: cfg.sessionStart, session_expiry_date: cfg.sessionExpiry, expiry_plus_one: cfg.expiryPlusOne };\n";
+      $js .= "    var state = (data && data.state) ? data.state : (cfg.initialState || 'missing_dates');\n";
+      $js .= "    if (state === 'active') { unlockComposer(); } else { lockComposer(state, data); }\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function scheduleApply(){\n";
+      $js .= "    if (scheduled) return;\n";
+      $js .= "    scheduled = true;\n";
+      $js .= "    setTimeout(function(){\n";
+      $js .= "      scheduled = false;\n";
+      $js .= "      if (!document.querySelector('.bm-reply')) return;\n";
+      $js .= "      apply();\n";
+      $js .= "    }, 50);\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function bindHandlersOnce(){\n";
+      $js .= "    if (handlersBound) return;\n";
+      $js .= "    handlersBound = true;\n";
+      $js .= "\n";
+      $js .= "    document.addEventListener('click', function(e){\n";
+      $js .= "      var reply = document.querySelector('.bm-reply');\n";
+      $js .= "      if (!reply || !reply.classList.contains('tbc-bm-hide')) return;\n";
+      $js .= "      var t = e.target;\n";
+      $js .= "      if (!t) return;\n";
+      $js .= "      var send = t.closest ? t.closest('.bm-send-message') : null;\n";
+      $js .= "      if (send) { e.preventDefault(); e.stopPropagation(); }\n";
+      $js .= "    }, true);\n";
+      $js .= "\n";
+      $js .= "    document.addEventListener('keydown', function(e){\n";
+      $js .= "      var reply = document.querySelector('.bm-reply');\n";
+      $js .= "      if (!reply || !reply.classList.contains('tbc-bm-hide')) return;\n";
+      $js .= "      e.preventDefault();\n";
+      $js .= "      e.stopPropagation();\n";
+      $js .= "    }, true);\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function fetchStateOnce(){\n";
+      $js .= "    if (fetchPromise) return fetchPromise;\n";
+      $js .= "    fetchPromise = $.post(cfg.ajaxUrl, { action: 'tbc_get_chat_state', nonce: cfg.nonce, bp_group_id: cfg.groupId, bp_group_slug: cfg.groupSlug })\n";
+      $js .= "      .then(function(resp){\n";
+      $js .= "        if (resp && resp.success && resp.data) { stateData = resp.data; writeCache(resp.data); }\n";
+      $js .= "        return stateData;\n";
+      $js .= "      }, function(){ return null; });\n";
+      $js .= "    return fetchPromise;\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  function init(){\n";
+      $js .= "    bindHandlersOnce();\n";
+      $js .= "    var cached = readCache();\n";
+      $js .= "    if (cached && cached.state) { stateData = cached; }\n";
+      $js .= "    scheduleApply();\n";
+      $js .= "    fetchStateOnce().then(function(){ scheduleApply(); });\n";
+      $js .= "  }\n";
+      $js .= "\n";
+      $js .= "  // Better Messages is reactive; watch for composer mount and re-apply cheaply.\n";
+      $js .= "  var observer = new MutationObserver(function(){\n";
+      $js .= "    if (!document.querySelector('.bm-reply')) return;\n";
+      $js .= "    scheduleApply();\n";
+      $js .= "  });\n";
+      $js .= "  observer.observe(document.documentElement, { childList: true, subtree: true });\n";
+      $js .= "\n";
+      $js .= "  $(document).ready(function(){ init(); });\n";
+      $js .= "})(jQuery);\n";
+
+      // Localize config first.
+      wp_add_inline_script('jquery', 'window.TBC_CHAT_LOCK = ' . wp_json_encode($payload) . ';', 'before');
+      wp_add_inline_script('jquery', $js, 'after');
+    }
+
+    // AJAX: return chat state for a BP group
+    add_action('wp_ajax_tbc_get_chat_state', 'tbc_ajax_get_chat_state');
+    add_action('wp_ajax_nopriv_tbc_get_chat_state', 'tbc_ajax_get_chat_state');
+
+    function tbc_ajax_get_chat_state() {
+      $nonce = sanitize_text_field($_POST['nonce'] ?? '');
+      if (!wp_verify_nonce($nonce, 'tbc_chat_state')) {
+        wp_send_json_error('Invalid nonce');
+      }
+
+      $bp_group_id = intval($_POST['bp_group_id'] ?? 0);
+      $bp_group_slug = sanitize_text_field($_POST['bp_group_slug'] ?? '');
+
+      if ($bp_group_id <= 0 && !empty($bp_group_slug)) {
+        $bp_group_id = tbc_get_bp_group_id_by_slug($bp_group_slug);
+      }
+
+      if ($bp_group_id <= 0) {
+        wp_send_json_error('Invalid group');
+      }
+
+      $state = tbc_get_chat_state_for_bp_group($bp_group_id);
+
+      $session_start = function_exists('groups_get_groupmeta') ? groups_get_groupmeta($bp_group_id, '_tbc_session_start_date', true) : '';
+      $session_expiry = function_exists('groups_get_groupmeta') ? groups_get_groupmeta($bp_group_id, '_tbc_session_expiry_date', true) : '';
+      if (empty($session_expiry) && function_exists('groups_get_groupmeta')) {
+        $session_expiry = groups_get_groupmeta($bp_group_id, '_tbc_expiry_date', true);
+      }
+
+      $expiry_plus_one = '';
+      $expiry_dt = tbc_parse_date_to_datetime($session_expiry);
+      if ($expiry_dt) {
+        $expiry_plus_one_dt = clone $expiry_dt;
+        $expiry_plus_one_dt->modify('+1 day');
+        $expiry_plus_one = $expiry_plus_one_dt->format('Y-m-d');
+      }
+
+      wp_send_json_success([
+        'state' => $state,
+        'bp_group_id' => $bp_group_id,
+        'session_start_date' => (string)$session_start,
+        'session_expiry_date' => (string)$session_expiry,
+        'expiry_plus_one' => (string)$expiry_plus_one,
+        'today' => current_time('Y-m-d'),
+      ]);
+    }
+
+    function tbc_get_bp_group_id_by_slug($slug) {
+      $slug = sanitize_title($slug);
+      if (empty($slug)) {
+        return 0;
+      }
+
+      if (function_exists('groups_get_id')) {
+        $id = groups_get_id($slug);
+        return $id ? intval($id) : 0;
+      }
+
+      if (function_exists('buddypress')) {
+        global $wpdb;
+        $bp = buddypress();
+        $table = $bp->groups->table_name;
+        $id = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE slug = %s LIMIT 1", $slug));
+        return $id ? intval($id) : 0;
+      }
+
+      return 0;
+    }
+
+    /**
+     * Enforce chat activation/expiry at message-send time.
+     * This is the most reliable enforcement point because Better Messages ultimately sends via BP Messages.
+     */
+    add_filter('messages_message_before_send', 'tbc_enforce_chat_activation_expiry_on_send', 5, 1);
+
+    function tbc_enforce_chat_activation_expiry_on_send($args) {
+      $thread_id = intval($args['thread_id'] ?? 0);
+
+      // If no thread_id, we can't map it to a BP group chat reliably; do not interfere.
+      if ($thread_id <= 0) {
+        return $args;
+      }
+
+      $bp_group_id = tbc_get_bp_group_id_from_bm_thread($thread_id);
+      if ($bp_group_id <= 0) {
+        // Not a BP group chat thread; do not interfere.
+        return $args;
+      }
+
+      $state = tbc_get_chat_state_for_bp_group($bp_group_id);
+
+      if ($state === 'expired') {
+        // Keep UI consistent: set the group description to expired message.
+        tbc_set_bp_group_description_expired($bp_group_id);
+        return new WP_Error('tbc_chat_expired', 'This chat has expired');
+      }
+
+      if ($state === 'before_start' || $state === 'missing_dates') {
+        return new WP_Error('tbc_chat_not_active', 'Chat is not available yet');
+      }
+
+      return $args;
+    }
+
+    /**
+     * Determine chat state for a BP group based on persisted BP group meta.
+     */
+    function tbc_get_chat_state_for_bp_group($bp_group_id) {
+      if (!function_exists('groups_get_groupmeta')) {
+        return 'missing_dates';
+      }
+
+      $session_start = groups_get_groupmeta($bp_group_id, '_tbc_session_start_date', true);
+      $session_expiry = groups_get_groupmeta($bp_group_id, '_tbc_session_expiry_date', true);
+      if (empty($session_expiry)) {
+        $session_expiry = groups_get_groupmeta($bp_group_id, '_tbc_expiry_date', true);
+      }
+
+      $start_dt = tbc_parse_date_to_datetime($session_start);
+      $expiry_dt = tbc_parse_date_to_datetime($session_expiry);
+      if (!$start_dt || !$expiry_dt) {
+        return 'missing_dates';
+      }
+
+      $start_ymd = $start_dt->format('Y-m-d');
+      $expiry_plus_one = clone $expiry_dt;
+      $expiry_plus_one->modify('+1 day');
+      $expiry_plus_one_ymd = $expiry_plus_one->format('Y-m-d');
+      $today = current_time('Y-m-d');
+
+      if ($today < $start_ymd) {
+        return 'before_start';
+      }
+      if ($today > $expiry_plus_one_ymd) {
+        return 'expired';
+      }
+
+      return 'active';
+    }
+
+    /**
+     * Resolve BP group ID from a Better Messages thread.
+     */
+    function tbc_get_bp_group_id_from_bm_thread($thread_id) {
+      global $wpdb;
+
+      $thread_id = intval($thread_id);
+      if ($thread_id <= 0) {
+        return 0;
+      }
+
+      // Method 1: Better Messages table
+      $bm_threads_table = $wpdb->prefix . 'bm_message_threads';
+      if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $bm_threads_table)) === $bm_threads_table) {
+        $row = $wpdb->get_row($wpdb->prepare(
+          "SELECT type, item_id FROM {$bm_threads_table} WHERE id = %d LIMIT 1",
+          $thread_id
+        ));
+        if ($row && isset($row->type) && $row->type === 'group' && !empty($row->item_id)) {
+          return intval($row->item_id);
+        }
+      }
+
+      // Method 2: BP messages meta (often stores group_id on the first message)
+      $bp_meta_table = $wpdb->prefix . 'bp_messages_meta';
+      $bp_messages_table = $wpdb->prefix . 'bp_messages_messages';
+
+      if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $bp_meta_table)) === $bp_meta_table) {
+        // Try meta directly on thread_id (common when thread_id == first message id)
+        $group_id = $wpdb->get_var($wpdb->prepare(
+          "SELECT meta_value FROM {$bp_meta_table} WHERE message_id = %d AND meta_key = 'group_id' LIMIT 1",
+          $thread_id
+        ));
+        if ($group_id) {
+          return intval($group_id);
+        }
+
+        // Fallback: get the first message ID in this thread, then read its group_id meta
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $bp_messages_table)) === $bp_messages_table) {
+          $first_message_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$bp_messages_table} WHERE thread_id = %d ORDER BY id ASC LIMIT 1",
+            $thread_id
+          ));
+          if ($first_message_id) {
+            $group_id = $wpdb->get_var($wpdb->prepare(
+              "SELECT meta_value FROM {$bp_meta_table} WHERE message_id = %d AND meta_key = 'group_id' LIMIT 1",
+              $first_message_id
+            ));
+            if ($group_id) {
+              return intval($group_id);
+            }
+          }
+        }
+      }
+
+      return 0;
+    }
+
+    /**
+     * Parse various date formats used in this codebase into DateTime.
+     */
+    function tbc_parse_date_to_datetime($raw) {
+      if (empty($raw)) {
+        return null;
+      }
+
+      $raw = is_string($raw) ? trim($raw) : $raw;
+
+      if (is_numeric($raw)) {
+        try {
+          $dt = new DateTime();
+          $dt->setTimestamp((int)$raw);
+          return $dt;
+        } catch (Exception $e) {
+          return null;
+        }
+      }
+
+      $dt = DateTime::createFromFormat('Y-m-d', (string)$raw);
+      if ($dt !== false) {
+        return $dt;
+      }
+
+      $dt = DateTime::createFromFormat('Ymd', (string)$raw);
+      if ($dt !== false) {
+        return $dt;
+      }
+
+      if (strtotime((string)$raw)) {
+        try {
+          return new DateTime((string)$raw);
+        } catch (Exception $e) {
+          return null;
+        }
+      }
+
+      return null;
+    }
+
+    /**
+     * Set BP group description to the required expired message.
+     */
+    function tbc_set_bp_group_description_expired($bp_group_id) {
+      if (!function_exists('groups_get_group') || !function_exists('buddypress')) {
+        return;
+      }
+
+      $bp_group_id = intval($bp_group_id);
+      if ($bp_group_id <= 0) {
+        return;
+      }
+
+      $bp_group = groups_get_group($bp_group_id);
+      if (!$bp_group || empty($bp_group->id)) {
+        return;
+      }
+
+      $expired_text = 'This chat has expired';
+      if (isset($bp_group->description) && trim((string)$bp_group->description) === $expired_text) {
+        return;
+      }
+
+      global $wpdb, $bp;
+      $table_name = $bp->groups->table_name;
+      $wpdb->update(
+        $table_name,
+        ['description' => $expired_text],
+        ['id' => $bp_group_id],
+        ['%s'],
+        ['%d']
+      );
+    }
 
 // ============================================================================
 // ADMIN NOTIFICATIONS & DIAGNOSTICS
@@ -3816,6 +4339,56 @@ function tbc_dependency_check() {
         </div>
         <?php
     }
+}
+
+/**
+ * Backend: Better Messages sends via REST (`/wp-json/better-messages/v1/thread/{id}/send`).
+ * Block sending for therapy BP-group chats when before start or expired.
+ */
+add_filter('rest_pre_dispatch', 'tbc_block_bm_rest_send_when_chat_locked', 10, 3);
+
+function tbc_block_bm_rest_send_when_chat_locked($result, $server, $request) {
+  if (!($request instanceof WP_REST_Request)) {
+    return $result;
+  }
+
+  // Allow admins to bypass chat locks.
+  if (is_user_logged_in() && current_user_can('manage_options')) {
+    return $result;
+  }
+
+  $route = $request->get_route();
+  if (!is_string($route)) {
+    return $result;
+  }
+
+  if (!preg_match('~^/better-messages/v1/thread/(\d+)/send$~', $route, $m)) {
+    return $result;
+  }
+
+  $thread_id = intval($m[1] ?? 0);
+  if ($thread_id <= 0) {
+    return $result;
+  }
+
+  $bp_group_id = tbc_get_bp_group_id_from_bm_thread($thread_id);
+  if ($bp_group_id <= 0) {
+    // Not a BP group chat thread.
+    return $result;
+  }
+
+  $state = tbc_get_chat_state_for_bp_group($bp_group_id);
+
+  if ($state === 'expired') {
+    tbc_set_bp_group_description_expired($bp_group_id);
+    return new WP_Error('tbc_chat_expired', 'This chat has expired', ['status' => 403]);
+  }
+
+  if ($state === 'before_start' || $state === 'missing_dates') {
+    return new WP_Error('tbc_chat_not_active', 'Chat is not available yet', ['status' => 403]);
+  }
+
+  return $result;
 }
 
 /**
