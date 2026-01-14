@@ -24,6 +24,19 @@ function cm_groups_is_directory_admin_user(): bool {
 }
 
 /**
+ * For guests, force a groups query that cannot match any real group.
+ * Note: `include=0` is treated as “no include filter” by BuddyPress.
+ */
+function cm_groups_force_empty_query_args_for_guests( array $args ): array {
+    // Use an extremely large, non-existent group ID.
+    $args['include']  = array( 999999999 );
+    $args['per_page'] = 1;
+    $args['page']     = 1;
+
+    return $args;
+}
+
+/**
  * Force groups directory queries (and its AJAX) to only show the logged-in user’s groups.
  */
 add_filter( 'bp_ajax_querystring', function ( $querystring, $object ) {
@@ -31,12 +44,25 @@ add_filter( 'bp_ajax_querystring', function ( $querystring, $object ) {
         return $querystring;
     }
 
-    if ( ! is_user_logged_in() || cm_groups_is_directory_admin_user() ) {
+    if ( function_exists( 'bp_is_groups_directory' ) && ! bp_is_groups_directory() ) {
+        // Don’t touch group loops outside the Groups Directory screen.
         return $querystring;
     }
 
-    if ( function_exists( 'bp_is_groups_directory' ) && ! bp_is_groups_directory() ) {
-        // Don’t touch group loops outside the Groups Directory screen.
+    // For logged-out (guest) users on /groups: show nothing.
+    if ( ! is_user_logged_in() ) {
+        $args = array();
+        if ( is_string( $querystring ) && $querystring !== '' ) {
+            parse_str( $querystring, $args );
+        }
+
+        // Force an empty loop.
+        $args = cm_groups_force_empty_query_args_for_guests( $args );
+
+        return http_build_query( $args );
+    }
+
+    if ( cm_groups_is_directory_admin_user() ) {
         return $querystring;
     }
 
@@ -56,6 +82,53 @@ add_filter( 'bp_ajax_querystring', function ( $querystring, $object ) {
     // Rebuild querystring, preserving other existing args (type, search_terms, etc).
     return http_build_query( $args );
 }, 20, 2 );
+
+/**
+ * Enforce the same behavior for non-AJAX group loops that pass args directly.
+ */
+add_filter( 'bp_before_has_groups_parse_args', function ( $args ) {
+    if ( ! is_array( $args ) ) {
+        return $args;
+    }
+
+    if ( function_exists( 'bp_is_groups_directory' ) && ! bp_is_groups_directory() ) {
+        return $args;
+    }
+
+    if ( ! is_user_logged_in() ) {
+        return cm_groups_force_empty_query_args_for_guests( $args );
+    }
+
+    if ( cm_groups_is_directory_admin_user() ) {
+        return $args;
+    }
+
+    $args['scope']       = 'personal';
+    $args['user_id']     = get_current_user_id();
+    $args['show_hidden'] = 1;
+
+    return $args;
+}, 20 );
+
+/**
+ * Guest users: display a clear message on the Groups Directory.
+ */
+add_action( 'bp_before_directory_groups_content', function () {
+    if ( is_user_logged_in() ) {
+        return;
+    }
+
+    if ( ! function_exists( 'bp_is_groups_directory' ) || ! bp_is_groups_directory() ) {
+        return;
+    }
+
+    echo '<div class="bp-feedback info">'
+        . '<span class="bp-icon" aria-hidden="true"></span>'
+        . '<p>'
+        . esc_html__( 'You are not enrolled in any group chat.', 'therapy-session-chat' )
+        . '</p>'
+        . '</div>';
+}, 5 );
 
 /**
  * Make the "My Groups" tab look active by default on /groups (without redirecting).
@@ -99,3 +172,19 @@ add_action( 'wp_footer', function () {
     </script>
     <?php
 }, 99 );
+
+add_action( 'wp_head', function () {
+    if ( ! function_exists( 'bp_is_groups_directory' ) || ! bp_is_groups_directory() ) {
+        return;
+    }
+
+    if ( cm_groups_is_directory_admin_user() ) {
+        return;
+    }
+
+    echo '<style>'
+        . '#subnav li a .count, #subnav li a .item-count, .dir-search .count, .groups-nav .count {'
+        . 'display:none!important;'
+        . '}'
+        . '</style>';
+}, 20 );
