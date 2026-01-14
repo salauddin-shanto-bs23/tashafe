@@ -182,9 +182,17 @@ add_action( 'wp_head', function () {
         return;
     }
 
-    echo '<style>'
-        . '#subnav li a .count, #subnav li a .item-count, .dir-search .count, .groups-nav .count {'
-        . 'display:none!important;'
-        . '}'
-        . '</style>';
+    $styles = '';
+
+    if ( ! is_user_logged_in() ) {
+        $styles .= '.groups-type-navs.main-navs { display:none!important; }';
+    } else {
+        $styles .= '.groups-type-navs.main-navs .component-navigation li { display:none!important; }';
+        $styles .= '.groups-type-navs.main-navs .component-navigation li#groups-my-groups { display:list-item!important; }';
+        $styles .= '#subnav li a .count, #subnav li a .item-count, .dir-search .count, .groups-nav .count { display:none!important; }';
+    }
+
+    if ( $styles !== '' ) {
+        echo '<style>' . $styles . '</style>';
+    }
 }, 20 );
