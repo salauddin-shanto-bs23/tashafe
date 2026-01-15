@@ -476,13 +476,14 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
     
     // Create BuddyPress Group
     $bp_group_args = [
-        'creator_id'   => $creator_id,
-        'name'         => sanitize_text_field($group_name),
-        'description'  => sanitize_textarea_field($description),
-        'slug'         => $slug,
-        'status'       => 'private',
-        'enable_forum' => false,
-        'date_created' => function_exists('bp_core_current_time') ? bp_core_current_time() : current_time('mysql'),
+      'creator_id'    => $creator_id,
+      'name'          => sanitize_text_field($group_name),
+      'description'   => sanitize_textarea_field($description),
+      'slug'          => $slug,
+      'status'        => 'private',
+      'invite_status' => 'admins',
+      'enable_forum'  => false,
+      'date_created'  => function_exists('bp_core_current_time') ? bp_core_current_time() : current_time('mysql'),
     ];
     
     $bp_group_id = groups_create_group($bp_group_args);
@@ -492,6 +493,20 @@ function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_
         return false;
     }
     
+    if (function_exists('groups_update_groupmeta')) {
+      groups_update_groupmeta($bp_group_id, 'invite_status', 'admins');
+    }
+
+    if (isset($GLOBALS['wpdb'], $GLOBALS['bp']) && !empty($GLOBALS['bp']->groups->table_name)) {
+      $GLOBALS['wpdb']->update(
+        $GLOBALS['bp']->groups->table_name,
+        ['invite_status' => 'admins'],
+        ['id' => $bp_group_id],
+        ['%s'],
+        ['%d']
+      );
+    }
+
     error_log("[BP Create] ✓✓ Successfully created BP group {$bp_group_id}");
     
     // Store bidirectional relationship
