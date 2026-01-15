@@ -1,0 +1,387 @@
+/* =========================================================
+   BuddyPress + Better Messages (minimal / safe tweaks)
+   Goal: ONLY background colors + the exact fixes requested.
+   Palette: #6059A6, #C3DDD2, black, white.
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   0) Background colors ONLY (no borders/radius/shadows)
+   --------------------------------------------------------- */
+
+/* Page background on BuddyPress + Messages pages */
+body.buddypress,
+body.bp-messages {
+  background-color: #ffffff !important;
+}
+
+/* Keep main BuddyPress wrapper readable */
+#buddypress,
+#buddypress .bp-wrap,
+#buddypress #item-body,
+#buddypress .item-body {
+  background-color: #ffffff;
+}
+
+#buddypress #cover-image-container #header-cover-image {
+  background-color: #C3DDD2;
+}
+
+/* Group description background (scoped) */
+#buddypress .desc-wrap {
+  background-color: #C3DDD2;
+}
+/* Better Messages: use its own CSS variables, but ONLY for backgrounds */
+:where(body.bp-messages, body.buddypress) :where(.bp-better-messages, .better-messages, .bp-messages-wrap, .bp-messages-wrap-group) {
+  --bm-bg-color: #ffffff;
+  --left-message-bg-color: #C3DDD2;
+  --right-message-bg-color: #6059A6;
+}
+
+/* Cover image container gradient (scoped to BuddyPress group view) */
+#buddypress #cover-image-container {
+  background: linear-gradient(100deg, #C3DDD2 0%, #6059A6 100%);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+/* Cover image container gradient */
+#cover-image-container {
+  background: linear-gradient(100deg, #C3DDD2, #6059A6) !important;
+}
+
+/* ---------------------------------------------------------
+   Add: Group primary nav background
+   - Only change: background color for the group menu/nav
+  --------------------------------------------------------- */
+
+#buddypress nav.main-navs#object-nav,
+#buddypress #object-nav {
+  background-color: #C3DDD2;
+}
+
+
+/* Hide subnav filters (search + order by) wrapper completely */
+#buddypress .subnav-filters.filters.clearfix.no-subnav {
+  display: none !important;
+}
+
+/* Space between name and joined meta in the provided markup (use rem for responsiveness) */
+#buddypress .item-block .member-name + .joined.item-meta,
+#buddypress .item-block .member-name + p.joined.item-meta {
+  margin-block-start: 0.5rem;
+}
+
+/* Make the item-block content centered (horizontal + vertical) and spaced responsively */
+#buddypress .item .item-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------
+   1) Home member list
+   - Avatar should match item-block height
+   - Add spacing between member name and joined meta
+   --------------------------------------------------------- */
+
+/* Stretch avatar container when parent uses flex (BP Nouveau commonly does) */
+/* Avatar: center the avatar container, limit size (max 5rem), and make it rounded */
+#buddypress .item-avatar {
+  align-self: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.25rem;
+}
+
+/* Make the image circular and responsive with a 5rem cap */
+#buddypress .item-avatar img {
+  width: 5rem;
+  height: 5rem;
+  max-width: 100%;
+  max-height: 5rem;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+
+/* ---------------------------------------------------------
+   Invite area: hide the invites subnav and make invites column full width
+   - CSS-only approach (cannot remove classes with CSS)
+  --------------------------------------------------------- */
+
+/* Hide the invites nav (subnav) */
+#buddypress #group-invites-container > nav.bp-navs.bp-subnavs.no-ajax.group-subnav.bp-invites-nav,
+#buddypress #group-invites-container > nav.bp-invites-nav {
+  display: none !important;
+}
+
+/* Make the invites column occupy the full container width */
+#buddypress #group-invites-container .group-invites-column {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+/* Ensure the parent container doesn't reserve space for the hidden nav
+   and force the invites column to span the full area. */
+#buddypress #group-invites-container {
+  display: block !important;
+  grid-template-columns: none !important;
+}
+
+/* If the layout uses flex or grid, make the column take all available space */
+#buddypress #group-invites-container .group-invites-column {
+  display: block !important;
+  flex: 0 0 100% !important;
+  grid-column: 1 / -1 !important;
+}
+
+/* Make sure the hidden nav contributes no height or margin */
+#buddypress #group-invites-container > nav.bp-navs.bp-subnavs.no-ajax.group-subnav.bp-invites-nav,
+#buddypress #group-invites-container > nav.bp-invites-nav {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ---------------------------------------------------------
+   Invite search button: ensure dashicon is centered
+  --------------------------------------------------------- */
+
+/* Make the invite search form a horizontal flex container */
+#buddypress form#group_invites_search_form,
+#buddypress .bp-invites-search-form {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem;
+}
+
+/* Match input padding for consistent height */
+#buddypress form#group_invites_search_form input#group_invites_search {
+  padding-inline: 0.6rem;
+  padding-block: 0.45rem;
+  box-sizing: border-box;
+}
+
+/* Center the button content (both vertically & horizontally) */
+#buddypress form#group_invites_search_form button#group_invites_search_submit {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding-inline: 0.6rem !important;
+  padding-block: 0.45rem !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Ensure the dashicon sits exactly centered in the button */
+#buddypress form#group_invites_search_form button#group_invites_search_submit .dashicons {
+  display: block !important;
+  margin: 0 auto !important;
+  line-height: 1 !important;
+  font-size: 1.05rem !important;
+}
+
+/* ---------------------------------------------------------
+   Messages thread header: add gap between avatar and info
+   - Use logical properties for RTL safety and responsive rem gap
+  --------------------------------------------------------- */
+
+#buddypress .chat-header .thread-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+#buddypress .chat-header .thread-info .avatar.bbpm-avatar {
+  margin-inline-end: 1rem;
+  width: 3.25rem;
+  height: 3.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Ensure avatar image fills the avatar box */
+#buddypress .chat-header .thread-info .avatar.bbpm-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+
+/* Force chat header to respect padding/height
+   Some BP/BM templates position header children absolutely or set fixed heights.
+   These rules ensure padding increases the visible header height and keep layout stable. */
+#buddypress .chat-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding-block: 1rem !important;
+  box-sizing: border-box !important;
+  min-height: 5rem !important;
+  height: auto !important;
+}
+
+/* Prevent children from being absolutely positioned inside the header which can collapse header height */
+#buddypress .chat-header > * {
+  position: relative !important;
+}
+
+/* Make thread-info-data a vertical stack and add gap between name and sub-name */
+#buddypress .chat-header .thread-info .thread-info-data {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.4rem !important;
+  min-width: 0 !important; /* allow flex children to shrink on small screens */
+}
+
+/* Thread info data: padding and stronger typography */
+/* Larger, bolder thread title + balanced subtitle */
+#buddypress .chat-header .thread-info .thread-info-data .name {
+  color: #21759b;
+  font-size: clamp(1rem, 2.4vw, 1.25rem);
+  font-weight: 800;
+  line-height: 1.05;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  text-overflow: clip !important;
+}
+
+#buddypress .chat-header .thread-info .thread-info-data .sub-name {
+  color: #21759b;
+  font-size: clamp(0.85rem, 1.6vw, 0.95rem);
+  font-weight: 700;
+  line-height: 1.1;
+  opacity: 0.95;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* ---------------------------------------------------------
+   Explicit responsive reductions for tablet and mobile
+   - Reduce title/subtitle sizes (instead of only wrapping)
+   - Shrink avatar and header padding to prevent trimming
+  --------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  #buddypress .chat-header {
+    padding-block: 0.75rem !important;
+    min-height: 4rem !important;
+  }
+
+  #buddypress .chat-header .thread-info .avatar.bbpm-avatar {
+    width: 2.6rem !important;
+    height: 2.6rem !important;
+  }
+
+  #buddypress .chat-header .thread-info .thread-info-data .name {
+    font-size: 1.02rem !important;
+    /* limit to 2 lines on narrower viewports to avoid 3-line wrapping */
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-height: calc(2 * 1.05em) !important;
+  }
+
+  #buddypress .chat-header .thread-info .thread-info-data .sub-name {
+    font-size: 0.9rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  #buddypress .chat-header {
+    padding-block: 0.6rem !important;
+    min-height: 3.5rem !important;
+  }
+
+  #buddypress .chat-header .thread-info .avatar.bbpm-avatar {
+    width: 2.1rem !important;
+    height: 2.1rem !important;
+    margin-inline-end: 0.6rem !important;
+  }
+
+  #buddypress .chat-header .thread-info .thread-info-data .name {
+    font-size: 0.85rem !important;
+    /* restrict to two lines with ellipsis on small phones */
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-height: calc(2 * 1.05em) !important;
+  }
+
+  #buddypress .chat-header .thread-info .thread-info-data .sub-name {
+    font-size: 0.76rem !important;
+  }
+}
+
+/* ---------------------------------------------------------
+   Remove border/shadow/outline on chat lock banner
+   - Targets `.tbc-chat-lock-banner` globally and within BP
+   - Uses `display:block` but removes border and visual chrome
+  --------------------------------------------------------- */
+
+.tbc-chat-lock-banner,
+#buddypress .tbc-chat-lock-banner {
+  border: none !important;
+  border-width: 0 !important;
+  border-style: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  background-clip: padding-box !important;
+}
+
+/* If the banner uses an inner element for the border, also clear common wrappers */
+.tbc-chat-lock-banner * {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* ---------------------------------------------------------
+   Remove Better Messages "maximize" control (CSS-only)
+   - Hides the control visually and removes pointer interaction
+   - Using display:none ensures it is removed from layout and
+     accessibility tree for screen readers.
+  --------------------------------------------------------- */
+
+#buddypress .thread-actions .bpbm-maximize,
+.bpbm-maximize {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* In case the markup places the button elsewhere, hide any element with that class */
+.bpbm-maximize[tabindex],
+.bpbm-maximize[aria-label] {
+  display: none !important;
+}
+
+
+
+
+
+
+
+
+
+
+
+
