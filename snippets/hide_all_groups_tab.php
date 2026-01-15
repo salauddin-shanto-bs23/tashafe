@@ -24,6 +24,48 @@ function cm_groups_is_directory_admin_user(): bool {
 }
 
 /**
+ * Hide the Members > Groups tab for non-admin users.
+ */
+add_action( 'bp_setup_nav', function () {
+    if ( ! function_exists( 'bp_core_remove_nav_item' ) ) {
+        return;
+    }
+
+    if ( cm_groups_is_directory_admin_user() ) {
+        return;
+    }
+
+    bp_core_remove_nav_item( 'groups' );
+}, 100 );
+
+/**
+ * Block direct access to /members/{user}/groups/ for non-admin users.
+ */
+add_action( 'bp_template_redirect', function () {
+    if ( ! is_user_logged_in() ) {
+        return;
+    }
+
+    if ( cm_groups_is_directory_admin_user() ) {
+        return;
+    }
+
+    if ( ! function_exists( 'bp_is_user' ) || ! function_exists( 'bp_is_current_component' ) ) {
+        return;
+    }
+
+    if ( bp_is_user() && bp_is_current_component( 'groups' ) ) {
+        if ( function_exists( 'bp_displayed_user_domain' ) ) {
+            wp_safe_redirect( bp_displayed_user_domain() );
+            exit;
+        }
+
+        wp_safe_redirect( home_url( '/members/' ) );
+        exit;
+    }
+}, 20 );
+
+/**
  * For guests, force a groups query that cannot match any real group.
  * Note: `include=0` is treated as “no include filter” by BuddyPress.
  */
