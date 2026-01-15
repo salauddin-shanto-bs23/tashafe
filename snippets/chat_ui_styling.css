@@ -146,49 +146,6 @@ body.bp-messages-full-screen .bp-messages-wrap.bp-messages-full-screen .chat-hea
   display: block;
 }
 
-
-/* ---------------------------------------------------------
-   Invite area: hide the invites subnav and make invites column full width
-   - CSS-only approach (cannot remove classes with CSS)
-  --------------------------------------------------------- */
-
-/* Hide the invites nav (subnav) */
-#buddypress #group-invites-container > nav.bp-navs.bp-subnavs.no-ajax.group-subnav.bp-invites-nav,
-#buddypress #group-invites-container > nav.bp-invites-nav {
-  display: none !important;
-}
-
-/* Make the invites column occupy the full container width */
-#buddypress #group-invites-container .group-invites-column {
-  width: 100% !important;
-  max-width: 100% !important;
-  box-sizing: border-box;
-}
-
-/* Ensure the parent container doesn't reserve space for the hidden nav
-   and force the invites column to span the full area. */
-#buddypress #group-invites-container {
-  display: block !important;
-  grid-template-columns: none !important;
-}
-
-/* If the layout uses flex or grid, make the column take all available space */
-#buddypress #group-invites-container .group-invites-column {
-  display: block !important;
-  flex: 0 0 100% !important;
-  grid-column: 1 / -1 !important;
-}
-
-/* Make sure the hidden nav contributes no height or margin */
-#buddypress #group-invites-container > nav.bp-navs.bp-subnavs.no-ajax.group-subnav.bp-invites-nav,
-#buddypress #group-invites-container > nav.bp-invites-nav {
-  display: none !important;
-  height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-}
-
 /* ---------------------------------------------------------
    Invite search button: ensure dashicon is centered
   --------------------------------------------------------- */
