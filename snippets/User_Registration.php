@@ -741,21 +741,6 @@ function render_therapy_registration_form()
         session_start();
     }
 
-    // If user is already logged in, show message
-    if (is_user_logged_in()) {
-        $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-
-        ob_start();
-?>
-        <div class="therapy-reg-container">
-            <div class="therapy-reg-message">
-                <p><?php echo ($lang === 'ar') ? 'لقد قمت بتسجيل الدخول بالفعل.' : 'You are already logged in.'; ?></p>
-            </div>
-        </div>
-    <?php
-        return ob_get_clean();
-    }
-
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
     $is_rtl = ($lang === 'ar');
 
@@ -773,6 +758,115 @@ function render_therapy_registration_form()
         error_log("Registration Form - preselected_group_id set to: {$preselected_group_id}");
     } else {
         error_log("Registration Form - No preselected_group_id found. Session: " . (isset($_SESSION['selected_group_id']) ? $_SESSION['selected_group_id'] : 'not set'));
+    }
+
+    // If user is already logged in, auto-register them to the selected therapy group
+    if (is_user_logged_in()) {
+        $group_title = '';
+        if ($preselected_group_id > 0) {
+            $group_post = get_post($preselected_group_id);
+            if ($group_post && $group_post->post_type === 'therapy_group') {
+                $group_title = $group_post->post_title;
+            }
+        }
+
+        ob_start();
+?>
+        <div class="therapy-reg-container">
+            <div class="therapy-reg-message">
+                <p>
+                    <?php
+                    if ($is_rtl) {
+                        echo $group_title
+                            ? 'يتم الآن تسجيلك في مجموعة: ' . esc_html($group_title)
+                            : 'يتم الآن تسجيلك في المجموعة المختارة...';
+                    } else {
+                        echo $group_title
+                            ? 'You are being registered to: ' . esc_html($group_title)
+                            : 'You are being registered to your selected group...';
+                    }
+                    ?>
+                </p>
+                <p id="therapy-reg-status" style="margin-bottom: 0; color: #666;"></p>
+                <button id="therapy-reg-retry" class="therapy-reg-btn" style="display:none; margin-top:16px;">
+                    <?php echo $is_rtl ? 'إعادة المحاولة' : 'Try Again'; ?>
+                </button>
+            </div>
+        </div>
+        <script>
+            (function() {
+                const statusEl = document.getElementById('therapy-reg-status');
+                const retryBtn = document.getElementById('therapy-reg-retry');
+                const isRtl = <?php echo $is_rtl ? 'true' : 'false'; ?>;
+                const selectedGroupId = <?php echo $preselected_group_id > 0 ? intval($preselected_group_id) : 0; ?>;
+
+                const messages = {
+                    registering: isRtl ? 'جاري التسجيل...' : 'Registering...',
+                    success: isRtl ? 'تم التسجيل بنجاح! جاري التوجيه...' : 'Registration successful! Redirecting...',
+                    missingGroup: isRtl ? 'لم يتم تحديد مجموعة. يرجى اختيار مجموعة علاجية أولاً.' : 'No group selected. Please choose a therapy group first.',
+                    error: isRtl ? 'حدث خطأ. يرجى المحاولة مرة أخرى.' : 'An error occurred. Please try again.'
+                };
+
+                function setStatus(text, isError) {
+                    statusEl.textContent = text;
+                    statusEl.style.color = isError ? '#dc2626' : '#666';
+                }
+
+                function registerLoggedInUser() {
+                    retryBtn.style.display = 'none';
+
+                    if (!selectedGroupId) {
+                        setStatus(messages.missingGroup, true);
+                        retryBtn.style.display = 'inline-block';
+                        return;
+                    }
+
+                    setStatus(messages.registering, false);
+
+                    const formData = new FormData();
+                    formData.append('action', 'therapy_logged_in_registration');
+                    formData.append('nonce', THERAPY_REG_AJAX.nonce);
+                    formData.append('selected_group_id', selectedGroupId);
+
+                    fetch(THERAPY_REG_AJAX.url, {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin'
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (data.success) {
+                                setStatus(messages.success, false);
+                                setTimeout(function() {
+                                    if (data.data && data.data.redirect_url) {
+                                        window.location.href = data.data.redirect_url;
+                                    } else {
+                                        window.location.reload();
+                                    }
+                                }, 1200);
+                            } else {
+                                setStatus(data.data || messages.error, true);
+                                retryBtn.style.display = 'inline-block';
+                            }
+                        })
+                        .catch(function() {
+                            setStatus(messages.error, true);
+                            retryBtn.style.display = 'inline-block';
+                        });
+                }
+
+                retryBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    registerLoggedInUser();
+                });
+
+                registerLoggedInUser();
+            })();
+        </script>
+    <?php
+        return ob_get_clean();
     }
 
     // Labels based on language
@@ -1405,6 +1499,7 @@ function render_therapy_registration_form()
  */
 add_action('wp_ajax_therapy_custom_registration', 'handle_therapy_custom_registration');
 add_action('wp_ajax_nopriv_therapy_custom_registration', 'handle_therapy_custom_registration');
+add_action('wp_ajax_therapy_logged_in_registration', 'handle_therapy_logged_in_registration');
 
 function handle_therapy_custom_registration()
 {
@@ -1576,6 +1671,117 @@ function handle_therapy_custom_registration()
     $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
 
     error_log("Custom Therapy Registration complete for user ID: $user_id");
+
+    wp_send_json_success([
+        'message'      => __('Registration successful!', 'therapy'),
+        'user_id'      => $user_id,
+        'redirect_url' => $redirect_url,
+    ]);
+}
+
+/**
+ * AJAX Handler for Logged-in Therapy Registration
+ */
+function handle_therapy_logged_in_registration()
+{
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'therapy_registration_nonce')) {
+        wp_send_json_error(__('Security check failed. Please refresh the page and try again.', 'therapy'));
+    }
+
+    if (!session_id()) {
+        session_start();
+    }
+
+    if (!is_user_logged_in()) {
+        wp_send_json_error(__('You must be logged in to register.', 'therapy'));
+    }
+
+    $user_id = get_current_user_id();
+    if (!$user_id) {
+        wp_send_json_error(__('Unable to identify your account. Please log in again.', 'therapy'));
+    }
+
+    $posted_group_id = isset($_POST['selected_group_id']) ? intval($_POST['selected_group_id']) : 0;
+    if ($posted_group_id > 0) {
+        $_SESSION['selected_group_id'] = $posted_group_id;
+    }
+
+    $selected_group_id = $posted_group_id > 0 ? $posted_group_id : (isset($_SESSION['selected_group_id']) ? intval($_SESSION['selected_group_id']) : 0);
+    if ($selected_group_id <= 0) {
+        wp_send_json_error(__('No group selected. Please choose a therapy group first.', 'therapy'));
+    }
+
+    // Process session data (assessment results, etc.)
+    if (isset($_SESSION['posted_data']) && is_array($_SESSION['posted_data'])) {
+        update_session_values();
+    }
+
+    // Save concern type from session (from assessment form or URL params)
+    $concern_type = '';
+    if (isset($_SESSION['user_concern_type']) && !empty($_SESSION['user_concern_type'])) {
+        $concern_type = $_SESSION['user_concern_type'];
+        unset($_SESSION['user_concern_type']);
+    } elseif (isset($_SESSION['issue']) && !empty($_SESSION['issue'])) {
+        $concern_type = $_SESSION['issue'];
+        unset($_SESSION['issue']);
+    }
+
+    if (!empty($concern_type)) {
+        update_user_meta($user_id, 'concern_type', $concern_type);
+        error_log("Logged-in Reg - Saved concern_type: $concern_type for user $user_id");
+    }
+
+    // Save gender from session
+    if (isset($_SESSION['gender'])) {
+        $gender = $_SESSION['gender'];
+        update_user_meta($user_id, 'gender', $gender);
+        error_log("Logged-in Reg - Saved gender: $gender for user $user_id");
+        unset($_SESSION['gender']);
+    }
+
+    // Save assessment passed status from session
+    if (isset($_SESSION['assessment_passed'])) {
+        $assessment_passed = $_SESSION['assessment_passed'];
+        update_user_meta($user_id, 'assessment_passed', $assessment_passed);
+        error_log("Logged-in Reg - Saved assessment_passed: $assessment_passed for user $user_id");
+        unset($_SESSION['assessment_passed']);
+    }
+
+    // Remove from waiting list if they were on it
+    $user_obj = get_userdata($user_id);
+    if ($user_obj) {
+        remove_user_from_waiting_list_by_email($user_obj->user_email);
+    }
+
+    // Assign user to therapy group - pass the selected group ID directly
+    error_log("Logged-in Reg - Calling assign_user_to_active_group with selected_group_id: $selected_group_id");
+    assign_user_to_active_group($user_id, [], $selected_group_id);
+
+    // ✅ ENROLL USER INTO BUDDYPRESS CHAT GROUP IMMEDIATELY
+    $final_assigned_group = get_user_meta($user_id, 'assigned_group', true);
+    error_log("[User Reg Logged-in] ✓ User {$user_id} assigned to therapy_group: {$final_assigned_group}");
+
+    if ($final_assigned_group) {
+        $enrollment_result = enroll_user_to_bp_chat_group($user_id, $final_assigned_group);
+        if ($enrollment_result) {
+            error_log("[User Reg Logged-in] ✓✓✓ BP enrollment successful for user {$user_id}");
+        } else {
+            error_log("[User Reg Logged-in] ✗✗✗ BP enrollment FAILED for user {$user_id} - Check enroll_user_to_bp_chat_group logs above");
+        }
+    } else {
+        error_log("[User Reg Logged-in] ✗ No therapy group assigned - BP enrollment skipped for user {$user_id}");
+        wp_send_json_error(__('Unable to assign you to a therapy group. Please contact support.', 'therapy'));
+    }
+
+    // Set flag for redirect (same as UM flow)
+    $_SESSION['just_registered'] = true;
+
+    // Determine redirect URL
+    $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
+    $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
+
+    error_log("Logged-in Therapy Registration complete for user ID: $user_id");
 
     wp_send_json_success([
         'message'      => __('Registration successful!', 'therapy'),
