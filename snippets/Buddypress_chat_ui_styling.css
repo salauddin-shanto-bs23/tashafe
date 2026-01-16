@@ -97,6 +97,14 @@ body.bp-messages-full-screen .bp-messages-wrap.bp-messages-full-screen .chat-hea
   color: #000000 !important;
 }
 
+/* Active tab text color for main navs (white background) */
+#buddypress nav.main-navs#object-nav li.current > a,
+#buddypress nav.main-navs#object-nav li.selected > a,
+#buddypress #object-nav li.current > a,
+#buddypress #object-nav li.selected > a {
+  color: #000000 !important;
+}
+
 
 /* Hide subnav filters (search + order by) wrapper completely */
 #buddypress .subnav-filters.filters.clearfix.no-subnav {

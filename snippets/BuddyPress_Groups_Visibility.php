@@ -24,21 +24,6 @@ function cm_groups_is_directory_admin_user(): bool {
 }
 
 /**
- * Hide the Members > Groups tab for non-admin users.
- */
-add_action( 'bp_setup_nav', function () {
-    if ( ! function_exists( 'bp_core_remove_nav_item' ) ) {
-        return;
-    }
-
-    if ( cm_groups_is_directory_admin_user() ) {
-        return;
-    }
-
-    bp_core_remove_nav_item( 'groups' );
-}, 100 );
-
-/**
  * Block direct access to /members/{user}/groups/ for non-admin users.
  */
 add_action( 'bp_template_redirect', function () {
@@ -55,13 +40,21 @@ add_action( 'bp_template_redirect', function () {
     }
 
     if ( bp_is_user() && bp_is_current_component( 'groups' ) ) {
-        if ( function_exists( 'bp_displayed_user_domain' ) ) {
-            wp_safe_redirect( bp_displayed_user_domain() );
-            exit;
-        }
+        if ( function_exists( 'bp_displayed_user_id' ) && function_exists( 'bp_loggedin_user_id' ) ) {
+            $displayed_id = bp_displayed_user_id();
+            $loggedin_id  = bp_loggedin_user_id();
 
-        wp_safe_redirect( home_url( '/members/' ) );
-        exit;
+            // Block viewing other users' groups list; allow own profile groups/invites.
+            if ( $displayed_id && $loggedin_id && $displayed_id !== $loggedin_id ) {
+                if ( function_exists( 'bp_loggedin_user_domain' ) ) {
+                    wp_safe_redirect( bp_loggedin_user_domain() );
+                    exit;
+                }
+
+                wp_safe_redirect( home_url( '/members/' ) );
+                exit;
+            }
+        }
     }
 }, 20 );
 
@@ -238,3 +231,26 @@ add_action( 'wp_head', function () {
         echo '<style>' . $styles . '</style>';
     }
 }, 20 );
+
+/**
+ * Hide Members > Groups tab in profile nav for non-admin users (UI only).
+ * Keep the component registered so /members/.../groups/invites/ remains accessible.
+ */
+add_action( 'bp_before_directory_groups_content', function () {
+    if ( ! is_user_logged_in() ) {
+        return;
+    }
+
+    if ( ! function_exists( 'bp_loggedin_user_domain' ) || ! function_exists( 'bp_is_groups_directory' ) || ! bp_is_groups_directory() ) {
+        return;
+    }
+
+    $base = trailingslashit( bp_loggedin_user_domain() ) . 'groups/';
+    $invites_url = trailingslashit( $base ) . 'invites/';
+
+    echo '<div class="bp-feedback info" style="margin-bottom:10px;">'
+        . '<p style="margin:0;">'
+        . '<a class="button" href="' . esc_url( $invites_url ) . '">' . esc_html__( 'My Invitations', 'therapy-session-chat' ) . '</a>'
+        . '</p>'
+        . '</div>';
+}, 6 );
