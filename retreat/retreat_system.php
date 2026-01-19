@@ -3036,46 +3036,62 @@ function render_retreat_event_cards()
     ob_start();
 ?>
     <style>
-        .retreat-cards-container {
+        .retreat-sections-container {
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             gap: 30px;
-            flex-wrap: wrap;
-            padding: 20px 0;
+            padding: 20px 0 10px;
         }
 
-        .retreat-event-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 8px 32px rgba(96, 89, 166, 0.15);
-            width: 320px;
+        .retreat-section {
+            background: #fff;
+            padding: 5%;
+            border-radius: 22px;
+            box-shadow: 0 10px 30px rgba(96, 89, 166, 0.1);
             overflow: hidden;
-            position: relative;
         }
 
-        .retreat-card-image {
+        .retreat-section-inner {
+            display: flex;
+            gap: 30px;
+            padding: 30px;
+            align-items: stretch;
+        }
+
+        .retreat-section.is-reversed .retreat-section-inner {
+            flex-direction: row-reverse;
+        }
+
+        .retreat-section-content,
+        .retreat-section-image {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .retreat-section-image {
+            display: flex;
+            align-items: stretch;
+        }
+
+        .retreat-section-image img,
+        .retreat-image-placeholder {
             width: 100%;
-            height: 200px;
+            border-radius: 18px;
             object-fit: cover;
+            min-height: 280px;
+            max-height: 360px;
             background: linear-gradient(135deg, #C3DDD2, #6059A6);
         }
 
-        .retreat-card-image-placeholder {
-            width: 100%;
-            height: 200px;
-            background: linear-gradient(135deg, #C3DDD2, #6059A6);
+        .retreat-image-placeholder {
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 60px;
-            opacity: 0.7;
+            font-size: 64px;
+            opacity: 0.65;
         }
 
-        .retreat-card-body {
-            padding: 20px 25px 25px;
-        }
-
-        .retreat-card-badge {
+        .retreat-section-badge {
             display: inline-flex;
             align-items: center;
             gap: 8px;
@@ -3086,136 +3102,85 @@ function render_retreat_event_cards()
             margin-bottom: 12px;
         }
 
-        .retreat-card-badge.male {
+        .retreat-section-badge.male {
             background: rgba(96, 89, 166, 0.12);
             color: #6059A6;
         }
 
-        .retreat-card-badge.female {
+        .retreat-section-badge.female {
             background: rgba(195, 221, 210, 0.3);
             color: #4a8b6f;
         }
 
-        .retreat-card-badge.teen {
+        .retreat-section-badge.teen {
             background: rgba(139, 125, 201, 0.15);
             color: #8B7DC9;
         }
 
-        .retreat-card-title {
-            font-size: 20px;
+        .retreat-section-title {
+            font-size: 26px;
             font-weight: 700;
-            color: #333;
-            margin: 0 0 18px;
+            color: #2f2f2f;
+            margin: 0 0 12px;
             line-height: 1.3;
         }
 
-        .retreat-card-info {
-            margin-bottom: 8px;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            font-size: 14px;
+        .retreat-section-desc {
             color: #555;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 20px;
         }
 
-        .retreat-card-info-label {
-            color: #888;
-            min-width: 70px;
-            font-weight: 500;
-            flex-shrink: 0;
+        .retreat-schedule-card {
+            background: #f8f7fb;
+            border-radius: 16px;
+            padding: 18px;
+            border: 1px solid rgba(96, 89, 166, 0.08);
         }
 
-        .retreat-card-info-value {
-            color: #333;
-            font-weight: 600;
-            flex: 1;
-            overflow: hidden;
+        .retreat-schedule-card-title {
+            font-weight: 700;
+            color: #3b3b3b;
+            margin-bottom: 12px;
+            font-size: 16px;
         }
 
-        .retreat-schedule-section {
-            margin-bottom: 15px;
+        .retreat-date-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
-        .retreat-schedule-label {
-            display: block;
-            color: #888;
-            font-size: 13px;
-            font-weight: 500;
-            margin-bottom: 8px;
-        }
-
-        .retreat-date-display {
-            color: #333;
-            font-weight: 600;
-            font-size: 14px;
-            margin-top: 8px;
-            min-height: 20px;
-        }
-
-        .retreat-schedule-dropdown {
+        .retreat-date-button {
             width: 100%;
-            padding: 10px 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 13px;
-            color: #333;
-            background: #fff;
-            cursor: pointer;
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236059A6' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 12px center;
-            transition: border-color 0.3s;
-            max-width: 100%;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-
-        .retreat-schedule-dropdown option {
-            font-size: 13px;
-            padding: 8px;
-        }
-
-        .retreat-schedule-dropdown:focus {
-            outline: none;
-            border-color: #6059A6;
-        }
-
-        .retreat-schedule-dropdown:disabled {
-            background-color: #f5f5f5;
-            cursor: not-allowed;
-        }
-
-        .retreat-card-book-btn {
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
-            width: 100%;
-            padding: 14px 20px;
-            background: linear-gradient(135deg, #C3DDD2, #6059A6);
-            color: #fff;
+            justify-content: space-between;
+            gap: 10px;
+            text-align: left;
+            padding: 12px 16px;
+            border-radius: 18px;
             border: none;
-            border-radius: 12px;
-            font-size: 16px;
+            background: linear-gradient(135deg, #6059A6 0%, #C3DDD2 100%);
+            font-size: 14px;
             font-weight: 600;
+            color: #ffffff;
             cursor: pointer;
-            margin-top: 18px;
-            transition: all 0.3s;
-            box-shadow: 0 4px 15px rgba(96, 89, 166, 0.3);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
         }
 
-        .retreat-card-book-btn:hover:not(.disabled) {
+        .retreat-date-button:hover,
+        .retreat-date-button.is-active {
+            box-shadow: 0 8px 20px rgba(96, 89, 166, 0.2);
+            transform: translateY(-3px);
+            filter: saturate(1.05) brightness(1.02);
+        }
+
+        .retreat-date-icon {
+            font-size: 16px;
             opacity: 0.9;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(96, 89, 166, 0.4);
-        }
-
-        .retreat-card-book-btn.disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            filter: blur(1px);
+            flex-shrink: 0;
         }
 
         .retreat-coming-soon {
@@ -3223,228 +3188,170 @@ function render_retreat_event_cards()
             color: #6059A6;
             font-size: 14px;
             font-weight: 600;
-            margin-top: 12px;
             padding: 10px;
             background: rgba(96, 89, 166, 0.08);
-            border-radius: 8px;
+            border-radius: 10px;
         }
 
-        @media (max-width: 1024px) {
-            .retreat-cards-container {
-                gap: 20px;
-            }
-
-            .retreat-event-card {
-                width: 300px;
-            }
+        .retreat-lang-ar .retreat-date-button {
+            text-align: right;
+            flex-direction: row-reverse;
         }
 
-        @media (max-width: 768px) {
-            .retreat-cards-container {
+        @media (max-width: 992px) {
+            .retreat-section-inner {
                 flex-direction: column;
-                align-items: center;
+                padding: 24px;
             }
 
-            .retreat-event-card {
-                width: 90%;
-                max-width: 380px;
+            .retreat-section.is-reversed .retreat-section-inner {
+                flex-direction: column;
+            }
+
+            .retreat-section-image img,
+            .retreat-image-placeholder {
+                max-height: 320px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .retreat-section-title {
+                font-size: 22px;
             }
         }
     </style>
 
-    <div class="retreat-cards-container<?php echo $is_ar ? ' retreat-lang-ar' : ''; ?>" <?php echo $is_ar ? 'dir="rtl"' : ''; ?>>
+    <div class="retreat-sections-container<?php echo $is_ar ? ' retreat-lang-ar' : ''; ?>" <?php echo $is_ar ? 'dir="rtl"' : ''; ?>>
         <?php foreach ($gender_types as $type):
             $settings = $all_settings[$type];
             $schedules = $schedules_by_type[$type];
             $has_schedules = !empty($schedules);
             $badge = $badge_config[$type];
+            $subtitle = $settings['group_subtitle'] ?? '';
         ?>
-            <div class="retreat-event-card" data-type="<?php echo esc_attr($type); ?>">
-                <?php if (!empty($settings['cover_image_url'])): ?>
-                    <img src="<?php echo esc_url($settings['cover_image_url']); ?>" alt="<?php echo esc_attr($settings['group_title']); ?>" class="retreat-card-image">
-                <?php else: ?>
-                    <div class="retreat-card-image-placeholder">🏝️</div>
-                <?php endif; ?>
+            <section class="retreat-section <?php echo $type === 'female' ? 'is-reversed' : ''; ?>" data-type="<?php echo esc_attr($type); ?>">
+                <div class="retreat-section-inner">
+                    <div class="retreat-section-content">
+                        <span class="retreat-section-badge <?php echo esc_attr($type); ?>">
+                            <span><?php echo $badge['icon']; ?></span>
+                            <?php echo esc_html($badge['label']); ?>
+                        </span>
 
-                <div class="retreat-card-body">
-                    <span class="retreat-card-badge <?php echo esc_attr($type); ?>">
-                        <span><?php echo $badge['icon']; ?></span>
-                        <?php echo esc_html($badge['label']); ?>
-                    </span>
+                        <h2 class="retreat-section-title"><?php echo esc_html($settings['group_title'] ?: ($fallback_titles[$type] ?? '')); ?></h2>
+                        <p class="retreat-section-desc"><?php echo esc_html($subtitle ?: retreat_translate('A restorative retreat experience tailored to your group.', 'تجربة ملاذ مميزة ومصممة خصيصًا لفئتكم.')); ?></p>
 
-                    <h3 class="retreat-card-title"><?php echo esc_html($settings['group_title'] ?: ($fallback_titles[$type] ?? '')); ?></h3>
+                        <div class="retreat-schedule-card">
+                            <div class="retreat-schedule-card-title"><?php echo esc_html(retreat_translate('Book Your Schedule', 'احجز موعدك')); ?></div>
+                            <?php if ($has_schedules): ?>
+                                <div class="retreat-date-buttons">
+                                    <?php foreach ($schedules as $schedule): ?>
+                                        <button class="retreat-date-button" type="button"
+                                            data-type="<?php echo esc_attr($type); ?>"
+                                            data-group-id="<?php echo esc_attr($schedule['group_id']); ?>"
+                                            data-date="<?php echo esc_attr($schedule['date_label']); ?>">
+                                            <?php echo esc_html($schedule['date_label']); ?>
+                                            <span class="retreat-date-icon" aria-hidden="true">📅</span>
+                                        </button>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="retreat-coming-soon"><?php echo esc_html($card_strings['no_schedules']); ?></div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
 
-                    <div class="retreat-schedule-section">
-                        <span class="retreat-schedule-label"><?php echo esc_html($card_strings['select_schedule_label']); ?></span>
-                        <?php if ($has_schedules): ?>
-                            <select class="retreat-schedule-dropdown" data-type="<?php echo esc_attr($type); ?>">
-                                <option value=""><?php echo esc_html($card_strings['choose_date']); ?></option>
-                                <?php foreach ($schedules as $schedule): ?>
-                                    <option value="<?php echo esc_attr($schedule['group_id']); ?>"
-                                        data-location="<?php echo esc_attr($schedule['location']); ?>"
-                                        data-price="<?php echo esc_attr($schedule['price_sar']); ?>"
-                                        data-date="<?php echo esc_attr($schedule['date_label']); ?>">
-                                        <?php echo esc_html($schedule['date_label']); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <div class="retreat-date-display retreat-date-display-<?php echo esc_attr($type); ?>" data-type="<?php echo esc_attr($type); ?>"><?php echo esc_html($card_strings['schedule_above']); ?></div>
+                    <div class="retreat-section-image">
+                        <?php if (!empty($settings['cover_image_url'])): ?>
+                            <img src="<?php echo esc_url($settings['cover_image_url']); ?>" alt="<?php echo esc_attr($settings['group_title']); ?>">
                         <?php else: ?>
-                            <div style="color:#999;font-size:14px;">
-                                <?php echo esc_html($card_strings['no_schedules']); ?>
-                            </div>
+                            <div class="retreat-image-placeholder">🏝️</div>
                         <?php endif; ?>
                     </div>
-
-                    <div class="retreat-card-info">
-                        <span class="retreat-card-info-label"><?php echo esc_html($card_strings['location_label']); ?></span>
-                        <span class="retreat-card-info-value retreat-location-display" data-type="<?php echo esc_attr($type); ?>">
-                            <?php echo esc_html($has_schedules ? '-' : $card_strings['tba']); ?>
-                        </span>
-                    </div>
-
-                    <div class="retreat-card-info">
-                        <span class="retreat-card-info-label"><?php echo esc_html($card_strings['price_label']); ?></span>
-                        <span class="retreat-card-info-value retreat-price-display" data-type="<?php echo esc_attr($type); ?>">
-                            <?php echo esc_html($has_schedules ? '-' : $card_strings['tba']); ?>
-                        </span>
-                    </div>
-
-                    <button class="retreat-card-book-btn disabled"
-                        data-type="<?php echo esc_attr($type); ?>"
-                        data-group-id=""
-                        disabled>
-                        <?php echo esc_html($card_strings['book_now']); ?> <span>+</span>
-                    </button>
-
-                    <?php if (!$has_schedules): ?>
-                        <div class="retreat-coming-soon"><?php echo esc_html($card_strings['coming_soon']); ?></div>
-                    <?php endif; ?>
                 </div>
-            </div>
+            </section>
         <?php endforeach; ?>
     </div>
 
     <script>
         jQuery(document).ready(function($) {
             const cardStrings = <?php echo wp_json_encode([
-                                    'scheduleAbove' => $card_strings['schedule_above'],
                                     'tba' => $card_strings['tba'],
                                     'contactPrice' => $card_strings['contact_price'],
-                                    'selectSchedule' => $card_strings['select_schedule'],
-                                    'selectScheduleAlert' => $card_strings['alert_select_schedule'],
                                     'loadError' => $card_strings['load_error'],
                                 ]); ?>;
             const sarSuffix = '<?php echo esc_js($card_strings['sar_suffix']); ?>';
             const usdSuffix = '<?php echo esc_js($card_strings['usd_suffix']); ?>';
             const typeLabels = <?php echo wp_json_encode($type_label_map); ?>;
 
-            // Handle schedule dropdown change
-            $('.retreat-schedule-dropdown').on('change', function() {
-                const type = $(this).data('type');
-                const selectedOption = $(this).find('option:selected');
-                const groupId = $(this).val();
-
-                const dateDisplay = $(`.retreat-date-display-${type}`);
-                const locationDisplay = $(`.retreat-location-display[data-type="${type}"]`);
-                const priceDisplay = $(`.retreat-price-display[data-type="${type}"]`);
-                const bookBtn = $(`.retreat-card-book-btn[data-type="${type}"]`);
-
-                if (groupId) {
-                    const date = selectedOption.data('date') || cardStrings.tba;
-                    const location = selectedOption.data('location') || cardStrings.tba;
-                    const price = selectedOption.data('price');
-
-                    dateDisplay.text(date);
-                    locationDisplay.text(location);
-                    priceDisplay.text(price ? price + sarSuffix : cardStrings.contactPrice);
-                    bookBtn.attr('data-group-id', groupId);
-                    bookBtn.removeClass('disabled').prop('disabled', false);
-                } else {
-                    dateDisplay.text(cardStrings.scheduleAbove);
-                    locationDisplay.text(cardStrings.selectSchedule);
-                    priceDisplay.text(cardStrings.selectSchedule);
-                    bookBtn.attr('data-group-id', '');
-                    bookBtn.addClass('disabled').prop('disabled', true);
-                }
-            });
-
-            // Handle Book Now button click - opens retreat details modal
-            $('.retreat-card-book-btn').on('click', function(e) {
-                e.preventDefault();
-
-                if ($(this).hasClass('disabled')) return;
-
-                const type = $(this).data('type');
-                const groupId = $(this).attr('data-group-id');
-
-                if (!groupId) {
-                    alert(cardStrings.selectScheduleAlert);
+            function openRetreatModal(type, groupId, buttonEl) {
+                if (!groupId || typeof RETREAT_AJAX === 'undefined') {
                     return;
                 }
 
-                // Load retreat details and open modal (uses existing functionality)
-                if (typeof RETREAT_AJAX !== 'undefined') {
-                    $.post(RETREAT_AJAX.url, {
-                        action: 'get_retreat_details',
-                        group_id: groupId,
-                        retreat_type: type,
-                        nonce: RETREAT_AJAX.nonce
-                    }, function(response) {
-                        if (response.success) {
-                            const d = response.data;
+                $('.retreat-date-button').removeClass('is-active');
+                if (buttonEl) {
+                    $(buttonEl).addClass('is-active');
+                }
 
-                            // Populate cover image
-                            if (d.cover_image) {
-                                $('#retreat-cover-image').attr('src', d.cover_image).show();
-                                $('#retreat-cover-placeholder').hide();
-                            } else {
-                                $('#retreat-cover-image').hide();
-                                $('#retreat-cover-placeholder').show();
-                            }
+                $.post(RETREAT_AJAX.url, {
+                    action: 'get_retreat_details',
+                    group_id: groupId,
+                    retreat_type: type,
+                    nonce: RETREAT_AJAX.nonce
+                }, function(response) {
+                    if (response.success) {
+                        const d = response.data;
 
-                            // Populate text fields
-                            $('#retreat-type-badge').text(typeLabels[type] || '');
-                            $('#retreat-title').text(d.group_title || d.title || '');
-                            $('#retreat-description').text(d.description || '');
-                            $('#retreat-dates').text(d.date_range || cardStrings.tba);
-                            $('#retreat-location').text(d.location || cardStrings.tba);
+                        if (d.cover_image) {
+                            $('#retreat-cover-image').attr('src', d.cover_image).show();
+                            $('#retreat-cover-placeholder').hide();
+                        } else {
+                            $('#retreat-cover-image').hide();
+                            $('#retreat-cover-placeholder').show();
+                        }
 
-                            // Price
-                            let priceText = d.price_sar ? d.price_sar + sarSuffix : cardStrings.contactPrice;
-                            $('#retreat-price').text(priceText);
-                            $('#retreat-price-usd').text(d.price_usd ? '$' + d.price_usd + usdSuffix : '');
+                        $('#retreat-type-badge').text(typeLabels[type] || '');
+                        $('#retreat-title').text(d.group_title || d.title || '');
+                        $('#retreat-description').text(d.description || '');
+                        $('#retreat-dates').text(d.date_range || cardStrings.tba);
+                        $('#retreat-location').text(d.location || cardStrings.tba);
 
-                            // Package includes
-                            if (d.package_items && d.package_items.length > 0) {
-                                let listHtml = '';
-                                d.package_items.forEach(function(item) {
-                                    listHtml += `<li style="padding:4px 0;display:flex;align-items:center;gap:8px;">
+                        const priceText = d.price_sar ? d.price_sar + sarSuffix : cardStrings.contactPrice;
+                        $('#retreat-price').text(priceText);
+                        $('#retreat-price-usd').text(d.price_usd ? '$' + d.price_usd + usdSuffix : '');
+
+                        if (d.package_items && d.package_items.length > 0) {
+                            let listHtml = '';
+                            d.package_items.forEach(function(item) {
+                                listHtml += `<li style="padding:4px 0;display:flex;align-items:center;gap:8px;">
                                     <span style="color:#C3DDD2;font-size:16px;">✓</span>
                                     <span style="color:#333;font-size:14px;">${item}</span>
                                 </li>`;
-                                });
-                                $('#retreat-package-list').html(listHtml);
-                                $('#package-includes-section').show();
-                            } else {
-                                $('#package-includes-section').hide();
-                            }
-
-                            // Store selected data for booking flow
-                            window.selectedRetreatType = type;
-                            window.selectedGroupId = groupId;
-                            window.selectedRetreatData = d;
-
-                            // Open details modal
-                            $('#retreat-details-modal').css('display', 'flex').hide().fadeIn(300);
+                            });
+                            $('#retreat-package-list').html(listHtml);
+                            $('#package-includes-section').show();
                         } else {
-                            alert(cardStrings.loadError);
+                            $('#package-includes-section').hide();
                         }
-                    });
-                }
+
+                        window.selectedRetreatType = type;
+                        window.selectedGroupId = groupId;
+                        window.selectedRetreatData = d;
+
+                        $('#retreat-details-modal').css('display', 'flex').hide().fadeIn(300);
+                    } else {
+                        alert(cardStrings.loadError);
+                    }
+                });
+            }
+
+            $(document).on('click', '.retreat-date-button', function(e) {
+                e.preventDefault();
+                const type = $(this).data('type');
+                const groupId = $(this).data('group-id');
+                openRetreatModal(type, groupId, this);
             });
 
-            // Update global variables when Book Your Spot is clicked from details modal
             $(document).on('click', '#book-spot-btn', function() {
                 if (window.selectedRetreatType && window.selectedGroupId) {
                     $('#reg_retreat_type').val(window.selectedRetreatType);
