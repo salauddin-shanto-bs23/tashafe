@@ -1379,13 +1379,13 @@ add_action('wp_footer', function () {
                     </div>
                     <div style="display:flex;align-items:flex-start;gap:12px;">
                         <div style="width:42px;height:42px;background:#6059A6;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                            <span style="color:#fff;font-size:18px;">💰</span>
+                            <span style="color:#fff;font-size:18px;">﷼</span>
                         </div>
                         <div>
                             <span style="color:#666;font-size:12px;display:block;">
-                                <?php echo esc_html(retreat_translate('Price:', 'السعر:')); ?>
+                                <?php echo esc_html(retreat_translate('Price (SAR):', 'السعر (ريال):')); ?>
                             </span>
-                            <span id="retreat-price-usd" style="color:#333;font-weight:600;font-size:14px;"></span>
+                            <span id="retreat-price-sar" style="color:#333;font-weight:600;font-size:14px;"></span>
                         </div>
                     </div>
                     <!-- Availability removed -->
@@ -1709,33 +1709,43 @@ add_action('wp_footer', function () {
         </div>
     </div>
 
+
+
+
+
     <!-- Waiting List Modal -->
     <div id="retreat-waiting-modal" style="display:none;">
         <div class="retreat-modal-content" style="max-width:500px;">
             <span class="retreat-waiting-close">&times;</span>
-            <h3 style="color:#6059A6;margin-bottom:15px;">Join Waiting List</h3>
-            <p style="color:#666;font-size:14px;text-align:center;margin-bottom:25px;">No retreats are currently available. Join our waiting list and we'll notify you when a spot opens.</p>
+            <h3 style="color:#6059A6;margin-bottom:15px;"><?php echo esc_html(retreat_translate('Join Waiting List',  'انضم إلى قائمة الانتظار')); ?></h3>
+            <p style="color:#666;font-size:14px;text-align:center;margin-bottom:25px;"><?php echo esc_html(retreat_translate('Join our waiting list and we will notify you when a spot opens.',  'انضم إلى قائمة الانتظار لدينا وسنبلغك عند توفر مكان.
+')); ?></p>
 
             <form id="retreat-waiting-form">
                 <input type="hidden" name="retreat_type" id="waiting_retreat_type">
                 <div class="form-group" style="margin-bottom:15px;">
-                    <label style="display:block;color:#333;font-weight:500;margin-bottom:8px;font-size:14px;">Full Name</label>
-                    <input type="text" name="full_name" placeholder="Enter your full name" required style="width:100%;padding:14px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;">
+                    <label style="display:block;color:#333;font-weight:500;margin-bottom:8px;font-size:14px;"><?php echo esc_html(retreat_translate('Full Name',  'الاسم الكامل')); ?></label>
+                    <input type="text" name="full_name" placeholder="<?php echo esc_html(retreat_translate('Enter your full name',  'أدخل اسمك الكامل
+')); ?>" required style="width:100%;padding:14px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;">
                 </div>
                 <div class="form-group" style="margin-bottom:15px;">
-                    <label style="display:block;color:#333;font-weight:500;margin-bottom:8px;font-size:14px;">Email</label>
-                    <input type="email" name="email" placeholder="Enter your email" required style="width:100%;padding:14px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;">
+                    <label style="display:block;color:#333;font-weight:500;margin-bottom:8px;font-size:14px;"><?php echo esc_html(retreat_translate('Email',  'بريد إلكتروني
+')); ?></label>
+                    <input type="email" name="email" placeholder="<?php echo esc_html(retreat_translate('Enter your email',  'أدخل بريدك الإلكتروني
+')); ?>" required style="width:100%;padding:14px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;">
                 </div>
                 <div class="form-group" style="margin-bottom:20px;">
-                    <label style="display:block;color:#333;font-weight:500;margin-bottom:8px;font-size:14px;">Phone (Optional)</label>
-                    <input type="text" name="phone" placeholder="Enter your phone number" style="width:100%;padding:14px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;">
+                    <label style="display:block;color:#333;font-weight:500;margin-bottom:8px;font-size:14px;"><?php echo esc_html(retreat_translate('Phone',  'هاتف')); ?></label>
+                    <input type="text" name="phone" placeholder="<?php echo esc_html(retreat_translate('Enter your phone number',  'أدخل رقم هاتفك
+')); ?>" style="width:100%;padding:14px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;">
                 </div>
                 <button type="submit" style="width:100%;padding:16px;background:linear-gradient(135deg, #C3DDD2, #6059A6);color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;transition:all 0.3s;">
-                    Join Waiting List
+                   <?php echo esc_html(retreat_translate('Join Waiting List',  'انضم إلى قائمة الانتظار')); ?>
                 </button>
             </form>
         </div>
     </div>
+
 
     <style>
         /* Base Modal Styles - All Modals */
@@ -2442,7 +2452,7 @@ add_action('wp_footer', function () {
 
             // ===== STEP 2: SCHEDULE SELECTION MODAL =====
             function loadSchedules(type) {
-                $('#schedule-list').html('<div style="text-align:center;padding:30px;color:#666;">Loading available retreats...</div>');
+                $('#schedule-list').html('<div style="text-align:center;padding:30px;color:#666;"><?php echo esc_attr(retreat_translate('Loading available retreats...', 'جارٍ تحميل الرحلات المتاحة...')); ?></div>');
 
                 $.post(RETREAT_AJAX.url, {
                     action: 'get_retreat_schedules',
@@ -2469,9 +2479,9 @@ add_action('wp_footer', function () {
                         // No retreats available - show waiting list option
                         $('#schedule-list').html(`
                             <div style="text-align:center;padding:30px;">
-                                <p style="color:#666;font-size:16px;margin-bottom:20px;">No retreats are currently available for this category.</p>
+                                <p style="color:#666;font-size:16px;margin-bottom:20px;"><?php echo esc_attr(retreat_translate('No retreats are currently available for this category.', 'لا توجد رحلات متاحة حالياً لهذه الفئة.')); ?></p>
                                 <button class="join-waiting-list-btn" data-type="${type}" style="padding:14px 30px;background:linear-gradient(135deg, #C3DDD2, #6059A6);color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;">
-                                    Join Waiting List
+                                    <?php echo esc_attr(retreat_translate('Join Waiting List', 'انضم إلى قائمة الانتظار')); ?>
                                 </button>
                             </div>
                         `);
@@ -2538,9 +2548,10 @@ add_action('wp_footer', function () {
                         $('#retreat-location').text(d.location || 'TBA');
 
                         // Price
-                        let priceText = d.price_sar ? d.price_sar + ' SAR' : 'Contact for price';
+                        let sarPrice = d.price_sar ? String(d.price_sar).trim() : '';
+                        let priceText = sarPrice ? sarPrice + ' SAR' : 'Contact for price';
                         $('#retreat-price').text(priceText);
-                        $('#retreat-price-usd').text(d.price_usd ? '$' + d.price_usd + ' / person' : '');
+                        $('#retreat-price-sar').text(priceText);
 
                         // Package includes
                         if (d.package_items && d.package_items.length > 0) {
@@ -2866,7 +2877,7 @@ add_action('wp_footer', function () {
                 let formData = $(this).serialize();
                 formData += '&action=join_retreat_waiting_list&nonce=' + RETREAT_AJAX.nonce;
 
-                $(this).find('button').prop('disabled', true).text('Submitting...');
+                $(this).find('button').prop('disabled', true).text('<?php echo esc_attr( retreat_translate('Submitting...', 'تقديم...') ); ?>');
 
                 $.post(RETREAT_AJAX.url, formData, function(response) {
                     if (response.success) {
@@ -2875,8 +2886,9 @@ add_action('wp_footer', function () {
                                 <div style="width:70px;height:70px;background:#d4edda;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
                                     <span style="font-size:32px;">✓</span>
                                 </div>
-                                <h3 style="color:#28a745;margin-bottom:15px;">Added to Waiting List!</h3>
-                                <p style="color:#666;font-size:15px;">We'll notify you when a spot opens up.</p>
+                                 <h3 style="color:#28a745;margin-bottom:15px;"><?php echo esc_attr( retreat_translate('Added to Waiting List!', 'تمت إضافته إلى قائمة الانتظار!
+') ); ?></h3>
+                                <p style="color:#666;font-size:15px;"><?php echo esc_attr( retreat_translate('We will notify you when a spot opens up.', 'سنبلغك عندما يتوفر مكان شاغر.') ); ?> </p>
                             </div>
                         `);
                         setTimeout(function() {
@@ -3036,6 +3048,10 @@ function render_retreat_event_cards()
     ob_start();
 ?>
     <style>
+		
+		.retreat-lang-ar .join-waiting-list-btn {
+            text-align: right !important;
+        }
         .retreat-sections-container {
             display: flex;
             flex-direction: column;
@@ -3254,9 +3270,26 @@ function render_retreat_event_cards()
                                         </button>
                                     <?php endforeach; ?>
                                 </div>
-                            <?php else: ?>
+                            <?php else: ?>		
                                 <div class="retreat-coming-soon"><?php echo esc_html($card_strings['no_schedules']); ?></div>
                             <?php endif; ?>
+							
+							
+							
+							
+							
+							<button class="join-waiting-list-btn" type="button" data-type="<?php echo esc_attr($type); ?>" style="padding:14px 30px;
+                                    background: linear-gradient(to left, #C3DDD2, #6059A6);
+                                    color:black;border:none; border-radius:10px; font-size:16px; font-weight:500; cursor:pointer; text-align:left; width: 100%;">
+									<?php echo esc_html(
+										retreat_translate(
+											'Put Me On The Waiting List If Other Dates Are Available',
+											'ضعني على قائمة الانتظار إذا كانت هناك مواعيد أخرى متاحة'
+										)
+									); ?>
+							</button>
+							
+							
                         </div>
                     </div>
 
@@ -3316,9 +3349,10 @@ function render_retreat_event_cards()
                         $('#retreat-dates').text(d.date_range || cardStrings.tba);
                         $('#retreat-location').text(d.location || cardStrings.tba);
 
-                        const priceText = d.price_sar ? d.price_sar + sarSuffix : cardStrings.contactPrice;
+                        const sarPrice = d.price_sar ? String(d.price_sar).trim() : '';
+                        const priceText = sarPrice ? sarPrice + sarSuffix : cardStrings.contactPrice;
                         $('#retreat-price').text(priceText);
-                        $('#retreat-price-usd').text(d.price_usd ? '$' + d.price_usd + usdSuffix : '');
+                        $('#retreat-price-sar').text(priceText);
 
                         if (d.package_items && d.package_items.length > 0) {
                             let listHtml = '';
