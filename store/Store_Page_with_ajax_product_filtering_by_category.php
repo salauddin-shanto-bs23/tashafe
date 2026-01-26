@@ -82,9 +82,6 @@ function tashafe_get_products_html($cat_id = 0) {
 
     wp_reset_postdata();
     $html .= '</ul>';
-	
-	// Full-width horizontal line
-	$html .= '<div class="tashafe-divider"></div>';
 
     return $html;
 }
@@ -218,7 +215,7 @@ function tashafe_category_tabs_assets() {
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
-            min-height: 300px; /* ensures uniform base height */
+            height: 100%; /* ensures uniform height */
         }
 
         .product-card:hover {
@@ -226,16 +223,24 @@ function tashafe_category_tabs_assets() {
             transform: translateY(-2px);
         }
 
+        .product-card > a {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            text-decoration: none;
+        }
+
         .product-card img {
-            max-width: 100%;
-            height: auto;
+            width: 100%;
+            height: 250px;
+            object-fit: contain;
             margin-bottom: 8px;
         }
 
         .product-card .woocommerce-loop-product__title {
             font-size: 13px;
             font-weight: 600;
-            margin: 8px 0 4px;
+            margin: auto 0 4px 0; /* pushes title to bottom */
             min-height: 36px; /* fixed space for 1-2 lines */
             overflow: hidden;
         }
@@ -243,7 +248,7 @@ function tashafe_category_tabs_assets() {
         .product-card .price {
             color: #333;
             font-weight: 500;
-            margin-top: auto; /* keeps price at bottom */
+            margin-bottom: 8px; /* padding at bottom for better UI */
         }
 
         .tashafe-products .loading {
