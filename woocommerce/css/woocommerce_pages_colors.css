@@ -1,0 +1,472 @@
+/* Buttons (classic & block) */
+.woocommerce button.single_add_to_cart_button,
+.woocommerce button.quick_buy_now_button,
+.woocommerce a.reset_variations,
+.woocommerce .tinvwl_add_to_wishlist-text,
+.woocommerce .offer-end-of-day,
+.woocommerce .offer-delivery-date,
+.woocommerce .wdticon-facebook,
+.woocommerce .wdticon-instagram,
+.woocommerce .wdt-icon-ext-x-icon,
+.woocommerce .wdticon-whatsapp,
+.wc-block-components-button,
+.wc-variation-selection-needed,
+.wc-block-components-panel__button,
+.wp-block-button__link {
+    background-color: #6059A6 !important;
+    color: #fff !important;
+    border-radius: 6px !important;
+    padding: 8px 16px !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    transition: all 0.3s ease !important;
+    text-decoration: none !important;
+}
+.woocommerce .wdticon-shopping-cart {
+	color: #6059A6 !important;
+}
+/* Button Hover */
+.woocommerce button.single_add_to_cart_button:hover,
+.woocommerce button.quick_buy_now_button:hover,
+.woocommerce a.reset_variations:hover,
+.woocommerce .tinvwl_add_to_wishlist-text:hover,
+.woocommerce .wdticon-shopping-cart:hover,
+.woocommerce .offer-end-of-day:hover,
+.woocommerce .offer-delivery-date:hover,
+.woocommerce .wdticon-facebook:hover,
+.woocommerce .wdticon-instagram:hover,
+.woocommerce .wdt-icon-ext-x-icon:hover,
+.woocommerce .wdticon-whatsapp:hover,
+.wc-block-components-button:hover,
+.wc-block-components-panel__button:hover,
+.wp-block-button__link:hover {
+    background-color: #C3DDD2 !important;
+    color: #000 !important;
+}
+
+/* Remove Item Link */
+.wc-block-cart-item__remove-link,
+.woocommerce a.remove {
+    color: #fff !important;
+    background-color: #6059A6 !important;
+    padding: 4px 8px !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+}
+
+.wc-block-cart-item__remove-link:hover,
+.woocommerce a.remove:hover {
+    background-color: #DEDBED !important;
+    color: #000 !important;
+}
+
+/* Table Headers - Cart & Checkout Blocks */
+.wp-block-woocommerce-cart-order-summary-heading-block,
+.wc-block-cart-items__header,
+.wc-block-cart-items__header-product,
+.wc-block-cart-items__header-product th,
+.woocommerce-cart table.shop_table th,
+.woocommerce-checkout .woocommerce-checkout-review-order-table th {
+    background-color: #6059A6 !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+    padding: 10px !important;
+    text-align: center !important;
+}
+
+/* Table Rows / Cells */
+.woocommerce-cart table.shop_table td,
+.woocommerce-checkout .woocommerce-checkout-review-order-table td {
+    background-color: #DEDBED !important;
+    color: #000 !important;
+    padding: 10px !important;
+    text-align: center !important;
+}
+
+/* Product Prices */
+.wc-block-components-product-price__value,
+.wc-block-components-product-price__value.is-discounted,
+.woocommerce .price {
+    color: #000 !important;
+    background-color: #C3DDD2 !important;
+    padding: 4px 6px !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    display: inline-block !important;
+}
+
+/* Offer Info Boxes */
+.offer-end-of-day,
+.offer-delivery-date {
+    background-color: #DEDBED !important;
+    color: #000 !important;
+    padding: 4px 8px !important;
+    border-radius: 4px !important;
+    font-weight: 500 !important;
+    display: inline-block !important;
+    margin-bottom: 4px !important;
+}
+
+/* Input Fields (quantity, coupon) */
+.woocommerce input[type='number'],
+.woocommerce input[type='text'],
+.woocommerce input[type='email'],
+.woocommerce input[type='password'],
+.woocommerce select {
+    border: 1px solid #6059A6 !important;
+    border-radius: 4px !important;
+    padding: 6px 8px !important;
+    background-color: #fff !important;
+    color: #000 !important;
+}
+
+/* Hover effect for table rows */
+.woocommerce-cart table.shop_table tr:hover td,
+.woocommerce-checkout .woocommerce-checkout-review-order-table tr:hover td {
+    background-color: #DEDBED !important;
+}
+
+/* ---------------------------
+WooCommerce Variation Select2 Dropdowns
+----------------------------*/
+
+/* All options */
+.select2-results__option {
+    background-color: #DEDBED !important;
+    color: #000 !important;
+    padding: 6px 12px !important;
+}
+
+/* Selected option */
+.select2-results__option--selected {
+    background-color: #6059A6 !important;
+    color: #fff !important;
+}
+
+/* Highlighted option (hover/focus) */
+.select2-results__option--highlighted {
+    background-color: #C3DDD2 !important;
+    color: #000 !important;
+}
+
+/* Disabled Add to Cart button */
+.single_add_to_cart_button.disabled {
+    background-color: #DEDBED !important;
+    color: #000 !important;
+    cursor: not-allowed !important;
+}
+
+/* Reset variations link */
+.reset_variations {
+    background-color: #6059A6 !important;
+    color: #fff !important;
+    padding: 6px 12px !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    display: inline-block !important;
+    margin-top: 10px !important;
+    transition: all 0.3s ease !important;
+}
+
+.reset_variations:hover {
+    background-color: #C3DDD2 !important;
+    color: #000 !important;
+}
+
+/* ---------------------------
+WooCommerce Additional Elements
+----------------------------*/
+
+/* WooCommerce radio buttons - force brand color */
+.wc-block-components-radio-control__input {
+    accent-color: #6059A6 !important; /* Modern browsers */
+    width: 16px !important;
+    height: 16px !important;
+    cursor: pointer !important;
+}
+
+/* For browsers that ignore accent-color, style using pseudo-elements */
+.wc-block-components-radio-control__input:checked {
+    background-color: #6059A6 !important;
+    border-color: #6059A6 !important;
+}
+
+/* WooCommerce notice banner text */
+.wc-block-components-notice-banner__content {
+    color: #6059A6 !important; /* Primary brand color text */
+    font-weight: 600;
+}
+
+
+/* WooCommerce Notice Banner */
+.wc-block-components-notice-banner__content {
+    color: #000 !important;                /* text color */
+    background-color: #DEDBED !important;  /* background color */
+    padding: 10px 15px !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    margin-bottom: 15px !important;
+}
+
+/* Add to Cart Button */
+.woocommerce div.product form.cart .single_add_to_cart_button,
+.woocommerce div.product .single_add_to_cart_button,
+.woocommerce .product .single_add_to_cart_button,
+button.single_add_to_cart_button {
+    background-color: #6059A6 !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+/* Add to Cart Button - Hover */
+.woocommerce div.product form.cart .single_add_to_cart_button:hover,
+.woocommerce div.product .single_add_to_cart_button:hover,
+button.single_add_to_cart_button:hover {
+    background-color: #4a4490 !important;
+    color: #fff !important;
+}
+
+/* Add to Cart Button - Disabled */
+.woocommerce div.product form.cart .single_add_to_cart_button.disabled,
+.woocommerce div.product form.cart .single_add_to_cart_button:disabled,
+.woocommerce div.product .single_add_to_cart_button.disabled,
+.woocommerce div.product .single_add_to_cart_button:disabled,
+button.single_add_to_cart_button.disabled,
+button.single_add_to_cart_button:disabled {
+    background-color: #6059A6 !important;
+    opacity: 0.6 !important;
+    color: #fff !important;
+    cursor: not-allowed !important;
+}
+
+/* Clear Button (Reset Variations) */
+.woocommerce div.product form.cart .reset_variations,
+.woocommerce .variations_form .reset_variations,
+a.reset_variations {
+    background-color: #6059A6 !important;
+    color: #fff !important;
+    padding: 0.5em 1em !important;
+    border-radius: 4px !important;
+    text-decoration: none !important;
+    display: inline-block !important;
+}
+
+/* Clear Button - Hover */
+.woocommerce div.product form.cart .reset_variations:hover,
+.woocommerce .variations_form .reset_variations:hover,
+a.reset_variations:hover {
+    background-color: #4a4490 !important;
+    color: #fff !important;
+}
+
+/* Clear Button - Disabled (if applicable) */
+.woocommerce div.product form.cart .reset_variations.disabled,
+.woocommerce .variations_form .reset_variations.disabled,
+a.reset_variations.disabled {
+    background-color: #6059A6 !important;
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .woocommerce button.single_add_to_cart_button,
+    .wc-block-components-button,
+    .wc-block-components-panel__button,
+    .wp-block-button__link {
+        width: 100% !important;
+        text-align: center !important;
+    }
+}
+
+/* ---------------------------
+HIGH SPECIFICITY OVERRIDES FOR THEME
+----------------------------*/
+
+/* Add to Cart Button - Maximum specificity to override theme */
+body.single-product.woocommerce div.product form.cart .woocommerce-variation-add-to-cart button.single_add_to_cart_button.button.alt,
+body.single-product.woocommerce div.product form.cart button.single_add_to_cart_button.button.alt,
+body.single-product div.product form.cart button.single_add_to_cart_button,
+.woocommerce div.product .woocommerce-variation-add-to-cart button.single_add_to_cart_button {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+/* Add to Cart Button Hover - Maximum specificity */
+body.single-product.woocommerce div.product form.cart .woocommerce-variation-add-to-cart button.single_add_to_cart_button.button.alt:hover,
+body.single-product.woocommerce div.product form.cart button.single_add_to_cart_button.button.alt:hover,
+body.single-product div.product form.cart button.single_add_to_cart_button:hover,
+.woocommerce div.product .woocommerce-variation-add-to-cart button.single_add_to_cart_button:hover {
+    background-color: #4a4490 !important;
+    background: #4a4490 !important;
+    color: #fff !important;
+}
+
+/* Clear/Reset Variations - Maximum specificity to override theme */
+body.single-product.woocommerce div.product .summary form.cart .variations .woo-variation-items-wrapper a.reset_variations,
+body.single-product.woocommerce div.product .summary form.cart table.variations td a.reset_variations,
+body.single-product.woocommerce div.product form.cart table.variations a.reset_variations,
+body.single-product div.product form.variations_form.cart a.reset_variations,
+.woocommerce div.product .summary form.cart .variations a.reset_variations {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    color: #fff !important;
+    padding: 6px 12px !important;
+    border-radius: 4px !important;
+    text-decoration: none !important;
+    display: inline-block !important;
+}
+
+/* Clear Button Hover - Maximum specificity */
+body.single-product.woocommerce div.product .summary form.cart .variations .woo-variation-items-wrapper a.reset_variations:hover,
+body.single-product.woocommerce div.product .summary form.cart table.variations td a.reset_variations:hover,
+body.single-product.woocommerce div.product form.cart table.variations a.reset_variations:hover,
+body.single-product div.product form.variations_form.cart a.reset_variations:hover,
+.woocommerce div.product .summary form.cart .variations a.reset_variations:hover {
+    background-color: #4a4490 !important;
+    background: #4a4490 !important;
+    color: #fff !important;
+}
+
+/* Buy Now Button - High specificity */
+body.single-product.woocommerce div.product .product-buy-now a.button.quick_buy_now_button,
+body.single-product div.product .product-buy-now a.quick_buy_now_button,
+.woocommerce div.product .product-buy-now a.button.quick_buy_now_button {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+body.single-product.woocommerce div.product .product-buy-now a.button.quick_buy_now_button:hover,
+body.single-product div.product .product-buy-now a.quick_buy_now_button:hover,
+.woocommerce div.product .product-buy-now a.button.quick_buy_now_button:hover {
+    background-color: #4a4490 !important;
+    background: #4a4490 !important;
+    color: #fff !important;
+}
+.wc-block-components-panel__button{
+	background-color: #6059A6;
+}
+
+/* ---------------------------
+WOOCOMMERCE BLOCKS BUTTONS - HIGH SPECIFICITY
+----------------------------*/
+
+/* Apply Coupon Button */
+.wc-block-components-totals-coupon__form button.wc-block-components-button.wp-element-button.wc-block-components-totals-coupon__button.contained,
+.wc-block-components-totals-coupon__form button.wc-block-components-button.wp-element-button.contained,
+.wc-block-components-totals-coupon__form button.wc-block-components-button.contained,
+.wc-block-components-totals-coupon__button.contained {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+/* Proceed to Checkout Button */
+.wc-block-cart__submit-container a.wc-block-components-button.wp-element-button.wc-block-cart__submit-button.contained,
+.wc-block-cart__submit a.wc-block-components-button.wp-element-button.contained,
+.wc-block-cart__submit-button.contained,
+.wp-block-woocommerce-proceed-to-checkout-block a.wc-block-components-button.contained {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+/* Place Order Button */
+.wc-block-checkout__actions_row button.wc-block-components-button.wp-element-button.wc-block-components-checkout-place-order-button.contained,
+.wc-block-checkout__actions_row button.wc-block-components-button.contained,
+.wc-block-components-checkout-place-order-button.contained,
+button.wc-block-components-checkout-place-order-button {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+/* Return to Cart Link */
+.wc-block-checkout__actions_row a.wc-block-components-checkout-return-to-cart-button,
+a.wc-block-components-checkout-return-to-cart-button {
+    color: #6059A6 !important;
+}
+
+.wc-block-checkout__actions_row a.wc-block-components-checkout-return-to-cart-button:hover,
+a.wc-block-components-checkout-return-to-cart-button:hover {
+    color: #4a4490 !important;
+}
+
+/* ALL WooCommerce Block Contained Buttons - Universal Override */
+.wc-block-components-button.wp-element-button.contained,
+button.wc-block-components-button.wp-element-button.contained,
+a.wc-block-components-button.wp-element-button.contained,
+.woocommerce-cart .wc-block-components-button.contained,
+.woocommerce-checkout .wc-block-components-button.contained,
+body.woocommerce-cart .wc-block-components-button.contained,
+body.woocommerce-checkout .wc-block-components-button.contained {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+/* Hover States for ALL Block Buttons */
+.wc-block-components-button.wp-element-button.contained:hover,
+button.wc-block-components-button.wp-element-button.contained:hover,
+a.wc-block-components-button.wp-element-button.contained:hover,
+.woocommerce-cart .wc-block-components-button.contained:hover,
+.woocommerce-checkout .wc-block-components-button.contained:hover,
+body.woocommerce-cart .wc-block-components-button.contained:hover,
+body.woocommerce-checkout .wc-block-components-button.contained:hover {
+    background-color: #4a4490 !important;
+    background: #4a4490 !important;
+    color: #fff !important;
+}
+
+/* Disabled state for Block Buttons */
+.wc-block-components-button.wp-element-button.contained:disabled,
+.wc-block-components-button.wp-element-button.contained[disabled],
+.wc-block-components-button.wp-element-button.contained[aria-disabled="true"] {
+    background-color: #6059A6 !important;
+    background: #6059A6 !important;
+    opacity: 0.6 !important;
+    color: #fff !important;
+}
+
+/* ---------------------------
+COUPON SECTION UI ENHANCEMENTS
+----------------------------*/
+
+/* Add Coupon Button - Additional padding to prevent text touching border */
+.wc-block-components-totals-coupon .wc-block-components-panel__button {
+    padding: 12px 20px !important;
+}
+
+/* Coupon Input Field - Center the label/placeholder vertically and horizontally */
+.wc-block-components-totals-coupon__input label {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    height: 100% !important;
+    padding-left: 8px !important;
+    margin: 0 !important;
+}
+
+/* Ensure the input container has proper positioning */
+.wc-block-components-totals-coupon__input {
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+/* Input field itself should have proper padding for centered text */
+.wc-block-components-totals-coupon__input input {
+    padding: 10px 12px !important;
+    line-height: 1.5 !important;
+}
