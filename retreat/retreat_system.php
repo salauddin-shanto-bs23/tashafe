@@ -1740,7 +1740,7 @@ add_action('wp_footer', function () {
 ')); ?>" style="width:100%;padding:14px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;">
                 </div>
                 <button type="submit" style="width:100%;padding:16px;background:linear-gradient(135deg, #C3DDD2, #6059A6);color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;transition:all 0.3s;">
-                   <?php echo esc_html(retreat_translate('Join Waiting List',  'انضم إلى قائمة الانتظار')); ?>
+                    <?php echo esc_html(retreat_translate('Join Waiting List',  'انضم إلى قائمة الانتظار')); ?>
                 </button>
             </form>
         </div>
@@ -2867,9 +2867,17 @@ add_action('wp_footer', function () {
                 selectedRetreatType = $(this).data('type');
                 $('#waiting_retreat_type').val(selectedRetreatType);
 
-                $('#retreat-schedule-modal').fadeOut(300, function() {
+                const showWaitingModal = function() {
                     $('#retreat-waiting-modal').css('display', 'flex').hide().fadeIn(300);
-                });
+                };
+
+                if ($('#retreat-schedule-modal').is(':visible')) {
+                    $('#retreat-schedule-modal').fadeOut(300, showWaitingModal);
+                } else if ($('#retreat-schedule-selection-modal').length && $('#retreat-schedule-selection-modal').is(':visible')) {
+                    $('#retreat-schedule-selection-modal').fadeOut(200, showWaitingModal);
+                } else {
+                    showWaitingModal();
+                }
             });
 
             $(document).on('submit', '#retreat-waiting-form', function(e) {
@@ -2877,7 +2885,7 @@ add_action('wp_footer', function () {
                 let formData = $(this).serialize();
                 formData += '&action=join_retreat_waiting_list&nonce=' + RETREAT_AJAX.nonce;
 
-                $(this).find('button').prop('disabled', true).text('<?php echo esc_attr( retreat_translate('Submitting...', 'تقديم...') ); ?>');
+                $(this).find('button').prop('disabled', true).text('<?php echo esc_attr(retreat_translate('Submitting...', 'تقديم...')); ?>');
 
                 $.post(RETREAT_AJAX.url, formData, function(response) {
                     if (response.success) {
@@ -2886,9 +2894,9 @@ add_action('wp_footer', function () {
                                 <div style="width:70px;height:70px;background:#d4edda;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
                                     <span style="font-size:32px;">✓</span>
                                 </div>
-                                 <h3 style="color:#28a745;margin-bottom:15px;"><?php echo esc_attr( retreat_translate('Added to Waiting List!', 'تمت إضافته إلى قائمة الانتظار!
-') ); ?></h3>
-                                <p style="color:#666;font-size:15px;"><?php echo esc_attr( retreat_translate('We will notify you when a spot opens up.', 'سنبلغك عندما يتوفر مكان شاغر.') ); ?> </p>
+                                 <h3 style="color:#28a745;margin-bottom:15px;"><?php echo esc_attr(retreat_translate('Added to Waiting List!', 'تمت إضافته إلى قائمة الانتظار!
+')); ?></h3>
+                                <p style="color:#666;font-size:15px;"><?php echo esc_attr(retreat_translate('We will notify you when a spot opens up.', 'سنبلغك عندما يتوفر مكان شاغر.')); ?> </p>
                             </div>
                         `);
                         setTimeout(function() {
@@ -2936,40 +2944,65 @@ function render_retreat_event_cards()
 {
     $is_ar = retreat_is_arabic_locale();
 
-    // Get gender settings for all three types
-    $gender_types = ['male', 'female', 'teen'];
+    // Order: teen, female, male (as per requirement)
+    $gender_types = ['teen', 'female', 'male'];
+
+    // Card content
+    $card_content = [
+        'teen' => [
+            'title_ar' => 'رحلة بناء الذات',
+            'title_en' => 'The Self-Building Journey',
+            'badge_ar' => 'مجموعة اليافعين',
+            'badge_en' => 'Teen Group',
+            'desc_ar' => 'مرحلة المراهقة مرحلة مهمة تتشكّل فيها الهوية وتزداد فيها الأسئلة الداخلية. قد يعاني الفرد من قلق، تذبذب في الثقة، مقارنة بالآخرين، حيرة حول الذات، أو تأثّر بوسائل التواصل الاجتماعي. هذه الرحلة توفّر مساحة نفسية آمنة بإشراف مختصين لدعم الوعي والفهم وتعزيز الثقة بالذات. لأن الدعم النفسي المبكر يصنع فرقاً حقيقيًا.',
+            'desc_en' => 'Adolescence is a crucial stage in which identity is formed and inner questions increase. An individual may experience anxiety, fluctuating self-confidence, comparison with others, confusion about the self, or the influence of social media. This journey provides a safe psychological space under the supervision of specialists to support awareness, understanding, and the strengthening of self-confidence. Because early psychological support makes a real difference.',
+            'cost_ar' => '–',
+            'cost_en' => '–',
+            'requirements_ar' => 'من عمر ١٤ إلى ١٧ سنة',
+            'requirements_en' => 'Ages 14–17',
+            'location_ar' => 'في دولة عُمان',
+            'location_en' => 'Sultanate of Oman',
+            'details_bg' => '#f8fbfa',
+        ],
+        'female' => [
+            'title_ar' => 'رحلة فهم الذات',
+            'title_en' => 'The Self-Understanding Journey',
+            'badge_ar' => 'مجموعة النساء',
+            'badge_en' => 'Female Group',
+            'desc_ar' => 'وسط ضجيج الحياة والأدوار اليومية، قد تبتعدين عن نفسك دون أن تنتبهي. رحلة فهم الذات مساحة نفسية آمنة لتفهمي مشاعرك بوعي وتعيدي الاتصال بذاتك. من خلال جلسات دعم نفسي جماعي بإشراف مختصين وبأسس علمية واضحة. لأن البداية الحقيقية… تبدأ من داخلك.',
+            'desc_en' => 'Amid the noise of life and daily roles, you may drift away from yourself without realizing it. The Self-Understanding Journey offers a safe psychological space to mindfully understand your emotions and reconnect with your true self. Through group psychological support sessions supervised by specialists and grounded in clear scientific principles. Because the true beginning… starts from within.',
+            'cost_ar' => 'الغرفة المفردة ٧٦٠٠ ريال / الغرفة المزدوجة ٦٩٧٠ ريال',
+            'cost_en' => 'Single room: 7,600 riyals / Double room: 6,970 riyals',
+            'requirements_ar' => 'فوق عمر ١٨ سنة',
+            'requirements_en' => 'Above 18 years of age',
+            'location_ar' => 'في دولة عُمان',
+            'location_en' => 'Sultanate of Oman',
+            'details_bg' => '#edeff3',
+        ],
+        'male' => [
+            'title_ar' => 'رحلة التوقف والبناء',
+            'title_en' => 'The Pause & Rebuild Journey',
+            'badge_ar' => 'مجموعة الشباب',
+            'badge_en' => 'Male Group',
+            'desc_ar' => 'هل تبدو حياتك ناجحة من الخارج، لكن داخلياً تشعر بثقل لا يُقال؟ مع تصاعد الضغوطات تظهر الإشارات: توتر، انفعال، الرغبة في الانسحاب، وتراجع في التركيز والعلاقات. هذه الرحلة فرصة للتوقف، فهم الذات، وبناء الاتزان النفسي، من خلال جلسات دعم نفسي جماعي قائمة على أسس علمية واضحة. لأن النجاح يبدأ من الداخل.',
+            'desc_en' => 'Does your life look successful from the outside, but inside you feel an unspoken heaviness? As pressures increase, signs begin to appear: tension, irritability, withdrawal, and a decline in focus and relationships. This journey is an opportunity to pause, understand yourself, and rebuild psychological balance, through group psychological support sessions based on clear scientific foundations. Because success begins from within.',
+            'cost_ar' => 'الغرفة المفردة ٧٦٠٠ ريال / الغرفة المزدوجة ٦٩٧٠ ريال',
+            'cost_en' => 'Single room: 7,600 riyals / Double room: 6,970 riyals',
+            'requirements_ar' => 'فوق عمر ١٨ سنة',
+            'requirements_en' => 'Above 18 years of age',
+            'location_ar' => 'في دولة عُمان',
+            'location_en' => 'Sultanate of Oman',
+            'details_bg' => '#f8fbfa',
+        ],
+    ];
+
+    // Get settings from ACF if available
     $all_settings = [];
-
-    $fallback_titles = [
-        'male' => retreat_translate('Male Wellness Retreat', 'الملاذ العلاجي للرجال'),
-        'female' => retreat_translate('Female Wellness Retreat', 'الملاذ العلاجي للسيدات'),
-        'teen' => retreat_translate('Teen Wellness Retreat', 'الملاذ العلاجي لليافعين'),
-    ];
-
-    $card_strings = [
-        'select_schedule_label' => retreat_translate('Select Schedule:', 'اختر المواعيد:'),
-        'choose_date' => retreat_translate('Choose a date', 'اختر تاريخاً'),
-        'schedule_above' => retreat_translate('Select a schedule above', 'اختر موعداً من القائمة أعلاه'),
-        'no_schedules' => retreat_translate('No schedules available', 'لا توجد جداول متاحة حالياً'),
-        'location_label' => retreat_translate('Location:', 'الموقع:'),
-        'price_label' => retreat_translate('Price:', 'السعر:'),
-        'tba' => retreat_translate('TBA', 'لاحقاً'),
-        'select_schedule' => retreat_translate('Select schedule', 'اختر موعداً'),
-        'contact_price' => retreat_translate('Contact for price', 'تواصل لمعرفة السعر'),
-        'book_now' => retreat_translate('Book Now', 'احجز الآن'),
-        'coming_soon' => retreat_translate('Groups coming soon', 'المجموعات قادمة قريباً'),
-        'alert_select_schedule' => retreat_translate('Please select a schedule first', 'يرجى اختيار موعد أولاً'),
-        'load_error' => retreat_translate('Failed to load retreat details', 'تعذر تحميل تفاصيل الرحلة'),
-        'sar_suffix' => retreat_translate(' SAR', ' ر.س'),
-        'usd_suffix' => retreat_translate(' / person', ' / للشخص'),
-    ];
-
     foreach ($gender_types as $type) {
         $settings = function_exists('get_retreat_gender_settings') ? get_retreat_gender_settings($type) : null;
         $all_settings[$type] = $settings ?: [
             'gender_type' => $type,
             'cover_image_url' => '',
-            'group_title' => $fallback_titles[$type] ?? retreat_translate('Retreat', 'الرحلة')
         ];
     }
 
@@ -3018,318 +3051,693 @@ function render_retreat_event_cards()
         $schedules_by_type[$type] = $schedules;
     }
 
-    // Badge labels and icons
-    $badge_config = [
-        'male' => [
-            'label' => retreat_translate('Male Group', 'مجموعة الرجال'),
-            'icon' => '👨',
-            'color' => '#6059A6',
-            'type_label' => retreat_translate('Male Retreat', 'رحلة الرجال')
-        ],
-        'female' => [
-            'label' => retreat_translate('Female Group', 'مجموعة السيدات'),
-            'icon' => '👩',
-            'color' => '#C3DDD2',
-            'type_label' => retreat_translate('Female Retreat', 'رحلة السيدات')
-        ],
-        'teen' => [
-            'label' => retreat_translate('Teen Group', 'مجموعة اليافعين'),
-            'icon' => '🧑‍🎓',
-            'color' => '#8B7DC9',
-            'type_label' => retreat_translate('Teen Retreat', 'رحلة اليافعين')
-        ]
+    // Strings for modals
+    $modal_strings = [
+        'select_schedule' => retreat_translate('Select Your Schedule', 'اختر المواعيد المناسبة'),
+        'no_schedules' => retreat_translate('No schedules available', 'لا توجد جداول متاحة'),
+        'put_waiting_list' => retreat_translate('Put Me On The Waiting List', 'ضعني على قائمة الانتظار'),
+        'put_waiting_list_other' => retreat_translate('Put Me On The Waiting List If Other Dates Are Available', 'ضعني على قائمة الانتظار إذا كانت هناك مواعيد أخرى متاحة'),
+        'book_now' => retreat_translate('Book Now', 'احجز الآن'),
+        'loading' => retreat_translate('Loading...', 'جارٍ التحميل...'),
     ];
 
     $type_label_map = [];
-    foreach ($badge_config as $type => $config) {
-        $type_label_map[$type] = $config['type_label'];
+    foreach ($gender_types as $type) {
+        $type_label_map[$type] = $is_ar ? $card_content[$type]['badge_ar'] : $card_content[$type]['badge_en'];
     }
 
     ob_start();
 ?>
     <style>
-		
-		.retreat-lang-ar .join-waiting-list-btn {
-            text-align: right !important;
-        }
-        .retreat-sections-container {
+        /* Retreat Cards Container */
+        .retreat-cards-wrapper {
             display: flex;
             flex-direction: column;
-            gap: 30px;
-            padding: 20px 0 10px;
+            gap: 40px;
+            padding: 40px 0;
+            max-width: 1200px;
+            margin: 0 auto;
         }
 
-        .retreat-section {
-            background: #fff;
-            padding: 5%;
-            border-radius: 22px;
-            box-shadow: 0 10px 30px rgba(96, 89, 166, 0.1);
+        /* Individual Card */
+        .retreat-card-section {
+            display: flex;
+            align-items: stretch;
+            background: transparent;
+            padding: 40px;
+            gap: 40px;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .retreat-card-section.is-reversed {
+            flex-direction: row-reverse;
+        }
+
+        /* Female card full-width background wrapper */
+        .retreat-card-wrapper {
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+
+        .retreat-card-wrapper.female-wrapper {
+            padding: 40px 0;
+        }
+
+        .retreat-card-wrapper.female-wrapper::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100vw;
+            height: 100%;
+            background: #f2f2f7;
+            z-index: -1;
+        }
+
+        .retreat-card-wrapper.female-wrapper .retreat-card-section {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Image Side */
+        .retreat-card-image {
+            flex: 0 0 45%;
+            max-width: 45%;
+            position: relative;
             overflow: hidden;
         }
 
-        .retreat-section-inner {
-            display: flex;
-            gap: 30px;
-            padding: 30px;
-            align-items: stretch;
-        }
-
-        .retreat-section.is-reversed .retreat-section-inner {
-            flex-direction: row-reverse;
-        }
-
-        .retreat-section-content,
-        .retreat-section-image {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .retreat-section-image {
-            display: flex;
-            align-items: stretch;
-        }
-
-        .retreat-section-image img,
-        .retreat-image-placeholder {
+        .retreat-card-image img {
             width: 100%;
-            border-radius: 18px;
+            height: 100%;
             object-fit: cover;
-            min-height: 280px;
-            max-height: 360px;
-            background: linear-gradient(135deg, #C3DDD2, #6059A6);
+            display: block;
+            border-radius: 16px;
         }
 
-        .retreat-image-placeholder {
+        .retreat-card-image-placeholder {
+            width: 100%;
+            height: 100%;
+            min-height: 380px;
+            background: linear-gradient(135deg, #C3DDD2, #6059A6);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 64px;
-            opacity: 0.65;
+            font-size: 80px;
+            opacity: 0.7;
+            border-radius: 16px;
         }
 
-        .retreat-section-badge {
-            display: inline-flex;
+        /* Content Side */
+        .retreat-card-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        /* Badge and Title Row */
+        .retreat-card-header {
+            display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-
-        .retreat-section-badge.male {
-            background: rgba(96, 89, 166, 0.12);
-            color: #6059A6;
-        }
-
-        .retreat-section-badge.female {
-            background: rgba(195, 221, 210, 0.3);
-            color: #4a8b6f;
-        }
-
-        .retreat-section-badge.teen {
-            background: rgba(139, 125, 201, 0.15);
-            color: #8B7DC9;
-        }
-
-        .retreat-section-title {
-            font-size: 26px;
-            font-weight: 700;
-            color: #2f2f2f;
-            margin: 0 0 12px;
-            line-height: 1.3;
-        }
-
-        .retreat-section-desc {
-            color: #555;
-            font-size: 15px;
-            line-height: 1.6;
+            gap: 15px;
             margin-bottom: 20px;
         }
 
-        .retreat-schedule-card {
-            background: #f8f7fb;
-            border-radius: 16px;
-            padding: 18px;
-            border: 1px solid rgba(96, 89, 166, 0.08);
-        }
-
-        .retreat-schedule-card-title {
-            font-weight: 700;
-            color: #3b3b3b;
-            margin-bottom: 12px;
-            font-size: 16px;
-        }
-
-        .retreat-date-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .retreat-date-button {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            text-align: left;
-            padding: 12px 16px;
-            border-radius: 18px;
-            border: none;
-            background: linear-gradient(135deg, #6059A6 0%, #C3DDD2 100%);
-            font-size: 14px;
-            font-weight: 600;
-            color: #ffffff;
-            cursor: pointer;
-            transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
-        }
-
-        .retreat-date-button:hover,
-        .retreat-date-button.is-active {
-            box-shadow: 0 8px 20px rgba(96, 89, 166, 0.2);
-            transform: translateY(-3px);
-            filter: saturate(1.05) brightness(1.02);
-        }
-
-        .retreat-date-icon {
-            font-size: 16px;
-            opacity: 0.9;
-            flex-shrink: 0;
-        }
-
-        .retreat-coming-soon {
-            text-align: center;
-            color: #6059A6;
-            font-size: 14px;
-            font-weight: 600;
-            padding: 10px;
-            background: rgba(96, 89, 166, 0.08);
-            border-radius: 10px;
-        }
-
-        .retreat-lang-ar .retreat-date-button {
-            text-align: right;
+        .retreat-cards-wrapper[dir="rtl"] .retreat-card-header {
             flex-direction: row-reverse;
         }
 
+        /* Badge */
+        .retreat-card-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            background: #c1e2eb;
+            color: #2a3a4a;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        /* Title - in same row as badge */
+        .retreat-card-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2a3a4a;
+            margin: 0;
+            line-height: 1.2;
+            flex: 1;
+        }
+
+        /* Description */
+        .retreat-card-desc {
+            font-size: 15px;
+            line-height: 1.9;
+            color: #4a5568;
+            margin: 0 0 25px 0;
+        }
+
+        /* Details Box */
+        .retreat-card-details {
+            border-radius: 12px;
+            padding: 20px 25px;
+            border: 1px solid transparent;
+        }
+
+        .retreat-card-details.teen,
+        .retreat-card-details.male {
+            background: #f8fbfa;
+            border-color: #dfe8e2;
+        }
+
+        .retreat-card-details.female {
+            background: #edeff3;
+            border-color: #d8dbe6;
+        }
+
+        .retreat-detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+        }
+
+        .retreat-detail-label {
+            font-size: 14px;
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+        .retreat-detail-value {
+            font-size: 14px;
+            color: #2a3a4a;
+            font-weight: 600;
+        }
+
+        /* Separator before book button */
+        .retreat-book-separator {
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
+            margin: 15px 0;
+        }
+
+        /* Book Button - with gradient and rounded border */
+        .retreat-book-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 28px;
+            background: linear-gradient(to bottom, #C3DDD2, #635ba3);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px !important;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: fit-content;
+        }
+
+        .retreat-book-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(96, 89, 166, 0.3);
+        }
+
+        .retreat-book-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Waiting List Button */
+        .retreat-waiting-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 28px;
+            background: linear-gradient(to bottom, #C3DDD2, #635ba3);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px !important;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: fit-content;
+        }
+
+        .retreat-waiting-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(96, 89, 166, 0.3);
+        }
+
+        /* No Groups Message */
+        .retreat-no-groups-msg {
+            text-align: left;
+            padding: 30px 0 10px;
+            color: #3d4155;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .retreat-no-groups-msg span {
+            display: block;
+        }
+
+        .retreat-no-groups-msg .retreat-no-groups-title {
+            font-weight: 500;
+            color: #6b7280;
+        }
+
+        .retreat-no-groups-msg .retreat-no-groups-coming {
+            font-weight: 700;
+            color: #2a3a4a;
+            margin-top: 12px;
+        }
+
+        .retreat-no-groups-underline {
+            width: 100%;
+            height: 1px;
+            background: rgba(0, 0, 0, 0.08);
+            margin: 0 0 20px;
+        }
+
+        /* RTL Support */
+        .retreat-cards-wrapper[dir="rtl"] .retreat-card-content {
+            text-align: right;
+        }
+
+        .retreat-cards-wrapper[dir="rtl"] .retreat-card-badge {
+            margin-left: auto;
+            margin-right: 0;
+        }
+
+        .retreat-cards-wrapper[dir="rtl"] .retreat-book-btn,
+        .retreat-cards-wrapper[dir="rtl"] .retreat-waiting-btn {
+            margin-left: auto;
+            margin-right: 0;
+        }
+
+        .retreat-cards-wrapper[dir="rtl"] .retreat-no-groups-msg {
+            text-align: right;
+        }
+
+        /* Responsive */
         @media (max-width: 992px) {
-            .retreat-section-inner {
+
+            .retreat-card-section,
+            .retreat-card-section.is-reversed {
                 flex-direction: column;
-                padding: 24px;
+                padding: 25px;
+                gap: 25px;
             }
 
-            .retreat-section.is-reversed .retreat-section-inner {
-                flex-direction: column;
+            .retreat-card-image {
+                flex: none;
+                max-width: 100%;
+                height: 280px;
             }
 
-            .retreat-section-image img,
-            .retreat-image-placeholder {
-                max-height: 320px;
+            .retreat-card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .retreat-cards-wrapper[dir="rtl"] .retreat-card-header {
+                align-items: flex-end;
+            }
+
+            .retreat-card-title {
+                font-size: 26px;
             }
         }
 
         @media (max-width: 600px) {
-            .retreat-section-title {
+            .retreat-cards-wrapper {
+                padding: 20px 0;
+                gap: 25px;
+            }
+
+            .retreat-card-section {
+                padding: 20px;
+            }
+
+            .retreat-card-title {
                 font-size: 22px;
             }
+
+            .retreat-card-desc {
+                font-size: 14px;
+            }
+
+            .retreat-card-details {
+                padding: 15px 20px;
+            }
+        }
+
+        /* Schedule Modal Styles */
+        .retreat-schedule-selection-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 99999;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .retreat-schedule-selection-content {
+            background: #ffffff;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+            padding: 30px;
+            position: relative;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .retreat-schedule-selection-close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 28px;
+            color: #999;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .retreat-schedule-selection-close:hover {
+            color: #333;
+        }
+
+        .retreat-schedule-selection-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #2a3a4a;
+            margin: 0 0 25px 0;
+            text-align: center;
+        }
+
+        .retreat-schedule-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .retreat-schedule-option {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: #f8f9fa;
+            border: 2px solid transparent;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .retreat-schedule-option:hover {
+            border-color: #6059A6;
+            background: #f0eef8;
+        }
+
+        .retreat-schedule-option.selected {
+            border-color: #6059A6;
+            background: #f0eef8;
+        }
+
+        .retreat-schedule-option-date {
+            font-size: 15px;
+            font-weight: 600;
+            color: #2a3a4a;
+        }
+
+        .retreat-schedule-option-spots {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .retreat-no-schedules-msg {
+            text-align: center;
+            padding: 30px 20px;
+            color: #6b7280;
+            font-size: 15px;
+        }
+
+        .retreat-waiting-list-btn {
+            width: 100%;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #6059A6 0%, #8B7DC9 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px !important;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 15px;
+        }
+
+        .retreat-waiting-list-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(96, 89, 166, 0.3);
+        }
+
+        .retreat-waiting-list-btn.secondary {
+            background: transparent;
+            border: 2px solid #6059A6;
+            color: #6059A6;
+            margin-top: 10px;
+        }
+
+        .retreat-waiting-list-btn.secondary:hover {
+            background: #f0eef8;
+            color: #000000;
+        }
+
+        .retreat-proceed-btn {
+            width: 100%;
+            padding: 16px 20px;
+            background: linear-gradient(135deg, #6059A6 0%, #8B7DC9 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: block;
+            filter: blur(0.8px);
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .retreat-proceed-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(96, 89, 166, 0.3);
+        }
+
+        .retreat-proceed-btn.is-active {
+            filter: none;
+            opacity: 1;
+            pointer-events: auto;
         }
     </style>
 
-    <div class="retreat-sections-container<?php echo $is_ar ? ' retreat-lang-ar' : ''; ?>" <?php echo $is_ar ? 'dir="rtl"' : ''; ?>>
-        <?php foreach ($gender_types as $type):
+    <div class="retreat-cards-wrapper" <?php echo $is_ar ? 'dir="rtl"' : ''; ?>>
+        <?php
+        $card_index = 0;
+        foreach ($gender_types as $type):
+            $content = $card_content[$type];
             $settings = $all_settings[$type];
             $schedules = $schedules_by_type[$type];
             $has_schedules = !empty($schedules);
-            $badge = $badge_config[$type];
-            $subtitle = $settings['group_subtitle'] ?? '';
+
+            // Alternate layout now flipped for each group
+            $is_reversed = in_array($type, ['teen', 'male'], true);
+
+            $title = $is_ar ? $content['title_ar'] : $content['title_en'];
+            $badge = $is_ar ? $content['badge_ar'] : $content['badge_en'];
+            $desc = $is_ar ? $content['desc_ar'] : $content['desc_en'];
+            $cost = $is_ar ? $content['cost_ar'] : $content['cost_en'];
+            $requirements = $is_ar ? $content['requirements_ar'] : $content['requirements_en'];
+            $location = $is_ar ? $content['location_ar'] : $content['location_en'];
         ?>
-            <section class="retreat-section <?php echo $type === 'female' ? 'is-reversed' : ''; ?>" data-type="<?php echo esc_attr($type); ?>">
-                <div class="retreat-section-inner">
-                    <div class="retreat-section-content">
-                        <span class="retreat-section-badge <?php echo esc_attr($type); ?>">
-                            <span><?php echo $badge['icon']; ?></span>
-                            <?php echo esc_html($badge['label']); ?>
-                        </span>
+            <?php if ($type === 'female'): ?>
+                <div class="retreat-card-wrapper female-wrapper">
+                <?php endif; ?>
 
-                        <h2 class="retreat-section-title"><?php echo esc_html($settings['group_title'] ?: ($fallback_titles[$type] ?? '')); ?></h2>
-                        <p class="retreat-section-desc"><?php echo esc_html($subtitle ?: retreat_translate('A restorative retreat experience tailored to your group.', 'تجربة ملاذ مميزة ومصممة خصيصًا لفئتكم.')); ?></p>
-
-                        <div class="retreat-schedule-card">
-                            <div class="retreat-schedule-card-title"><?php echo esc_html(retreat_translate('Book Your Schedule', 'احجز موعدك')); ?></div>
-                            <?php if ($has_schedules): ?>
-                                <div class="retreat-date-buttons">
-                                    <?php foreach ($schedules as $schedule): ?>
-                                        <button class="retreat-date-button" type="button"
-                                            data-type="<?php echo esc_attr($type); ?>"
-                                            data-group-id="<?php echo esc_attr($schedule['group_id']); ?>"
-                                            data-date="<?php echo esc_attr($schedule['date_label']); ?>">
-                                            <?php echo esc_html($schedule['date_label']); ?>
-                                            <span class="retreat-date-icon" aria-hidden="true">📅</span>
-                                        </button>
-                                    <?php endforeach; ?>
-                                </div>
-                            <?php else: ?>		
-                                <div class="retreat-coming-soon"><?php echo esc_html($card_strings['no_schedules']); ?></div>
-                            <?php endif; ?>
-							
-							
-							
-							
-							
-							<button class="join-waiting-list-btn" type="button" data-type="<?php echo esc_attr($type); ?>" style="padding:14px 30px;
-                                    background: linear-gradient(to left, #C3DDD2, #6059A6);
-                                    color:black;border:none; border-radius:10px; font-size:16px; font-weight:500; cursor:pointer; text-align:left; width: 100%;">
-									<?php echo esc_html(
-										retreat_translate(
-											'Put Me On The Waiting List If Other Dates Are Available',
-											'ضعني على قائمة الانتظار إذا كانت هناك مواعيد أخرى متاحة'
-										)
-									); ?>
-							</button>
-							
-							
-                        </div>
-                    </div>
-
-                    <div class="retreat-section-image">
+                <section class="retreat-card-section <?php echo $is_reversed ? 'is-reversed' : ''; ?> <?php echo esc_attr($type); ?>" data-type="<?php echo esc_attr($type); ?>">
+                    <div class="retreat-card-image">
                         <?php if (!empty($settings['cover_image_url'])): ?>
-                            <img src="<?php echo esc_url($settings['cover_image_url']); ?>" alt="<?php echo esc_attr($settings['group_title']); ?>">
+                            <img src="<?php echo esc_url($settings['cover_image_url']); ?>" alt="<?php echo esc_attr($title); ?>">
                         <?php else: ?>
-                            <div class="retreat-image-placeholder">🏝️</div>
+                            <div class="retreat-card-image-placeholder">🏝️</div>
                         <?php endif; ?>
                     </div>
+
+                    <div class="retreat-card-content">
+                        <div class="retreat-card-header">
+                            <span class="retreat-card-badge"><?php echo esc_html($badge); ?></span>
+                            <h2 class="retreat-card-title"><?php echo esc_html($title); ?></h2>
+                        </div>
+
+                        <p class="retreat-card-desc"><?php echo esc_html($desc); ?></p>
+
+                        <?php if ($has_schedules): ?>
+                            <div class="retreat-card-details <?php echo esc_attr($type); ?>">
+                                <div class="retreat-detail-row">
+                                    <span class="retreat-detail-label"><?php echo esc_html(retreat_translate('Duration:', 'الوقت:')); ?></span>
+                                    <span class="retreat-detail-value"><?php echo esc_html($is_ar ? '٤ أيام' : '4 days'); ?></span>
+                                </div>
+                                <div class="retreat-detail-row">
+                                    <span class="retreat-detail-label"><?php echo esc_html(retreat_translate('Cost:', 'التكلفة:')); ?></span>
+                                    <span class="retreat-detail-value"><?php echo esc_html($cost); ?></span>
+                                </div>
+                                <div class="retreat-detail-row">
+                                    <span class="retreat-detail-label"><?php echo esc_html(retreat_translate('Requirements:', 'الإشتراطات:')); ?></span>
+                                    <span class="retreat-detail-value"><?php echo esc_html($requirements); ?></span>
+                                </div>
+                                <div class="retreat-detail-row">
+                                    <span class="retreat-detail-label"><?php echo esc_html(retreat_translate('Location:', 'الموقع:')); ?></span>
+                                    <span class="retreat-detail-value"><?php echo esc_html($location); ?></span>
+                                </div>
+
+                                <div class="retreat-book-separator"></div>
+
+                                <button class="retreat-book-btn" type="button" data-type="<?php echo esc_attr($type); ?>">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                                    </svg>
+                                    <?php echo esc_html(retreat_translate('Book Now', 'احجز الآن')); ?>
+                                </button>
+                            </div>
+                        <?php else: ?>
+                            <div class="retreat-card-details <?php echo esc_attr($type); ?>">
+                                <div class="retreat-no-groups-msg">
+                                    <span class="retreat-no-groups-title"><?php echo esc_html(retreat_translate('No groups available', 'لا توجد مجموعات متاحة')); ?></span>
+                                    <span class="retreat-no-groups-coming"><?php echo esc_html(retreat_translate('Groups are comming soon', 'المجموعات قادمة قريباً')); ?></span>
+                                </div>
+                                <div class="retreat-no-groups-underline"></div>
+
+                                <button class="retreat-waiting-btn join-waiting-list-btn" type="button" data-type="<?php echo esc_attr($type); ?>">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                        <circle cx="8.5" cy="7" r="4"></circle>
+                                        <line x1="20" y1="8" x2="20" y2="14"></line>
+                                        <line x1="23" y1="11" x2="17" y2="11"></line>
+                                    </svg>
+                                    <?php echo esc_html(retreat_translate('Join Waiting List', 'انضم لقائمة الانتظار')); ?>
+                                </button>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </section>
+
+                <?php if ($type === 'female'): ?>
                 </div>
-            </section>
-        <?php endforeach; ?>
+            <?php endif; ?>
+        <?php
+            $card_index++;
+        endforeach;
+        ?>
+    </div>
+
+    <!-- Schedule Selection Modal -->
+    <div id="retreat-schedule-selection-modal" class="retreat-schedule-selection-modal">
+        <div class="retreat-schedule-selection-content" <?php echo $is_ar ? 'dir="rtl"' : ''; ?>>
+            <span class="retreat-schedule-selection-close" style="<?php echo $is_ar ? 'left: 20px; right: auto;' : ''; ?>">&times;</span>
+            <h3 class="retreat-schedule-selection-title"><?php echo esc_html($modal_strings['select_schedule']); ?></h3>
+
+            <div id="retreat-schedule-list-container">
+                <!-- Schedules will be loaded here -->
+            </div>
+
+            <button id="retreat-proceed-booking-btn" class="retreat-proceed-btn" type="button">
+                <?php echo esc_html(retreat_translate('Proceed to Booking', 'المتابعة للحجز')); ?>
+            </button>
+
+            <button id="retreat-waiting-other-dates-btn" class="retreat-waiting-list-btn secondary" type="button">
+                <?php echo esc_html($modal_strings['put_waiting_list_other']); ?>
+            </button>
+        </div>
     </div>
 
     <script>
         jQuery(document).ready(function($) {
-            const cardStrings = <?php echo wp_json_encode([
-                                    'tba' => $card_strings['tba'],
-                                    'contactPrice' => $card_strings['contact_price'],
-                                    'loadError' => $card_strings['load_error'],
-                                ]); ?>;
-            const sarSuffix = '<?php echo esc_js($card_strings['sar_suffix']); ?>';
-            const usdSuffix = '<?php echo esc_js($card_strings['usd_suffix']); ?>';
+            const scheduleData = <?php echo wp_json_encode($schedules_by_type); ?>;
+            const modalStrings = <?php echo wp_json_encode($modal_strings); ?>;
             const typeLabels = <?php echo wp_json_encode($type_label_map); ?>;
+            const isAr = <?php echo $is_ar ? 'true' : 'false'; ?>;
 
-            function openRetreatModal(type, groupId, buttonEl) {
-                if (!groupId || typeof RETREAT_AJAX === 'undefined') {
+            let currentRetreatType = null;
+            let selectedGroupId = null;
+
+            // Open schedule modal on book button click
+            $(document).on('click', '.retreat-book-btn', function(e) {
+                e.preventDefault();
+                const type = $(this).data('type');
+                currentRetreatType = type;
+                selectedGroupId = null;
+
+                const schedules = scheduleData[type] || [];
+                let html = '';
+
+                if (schedules.length > 0) {
+                    html += '<div class="retreat-schedule-list">';
+                    schedules.forEach(function(schedule) {
+                        html += `<div class="retreat-schedule-option" data-group-id="${schedule.group_id}">
+                            <span class="retreat-schedule-option-date">${schedule.date_label}</span>
+                            <span class="retreat-schedule-option-spots">${schedule.available_spots} ${isAr ? 'مقاعد متاحة' : 'spots available'}</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    $('#retreat-proceed-booking-btn').removeClass('is-active').show();
+                    $('#retreat-waiting-other-dates-btn').show();
+                } else {
+                    html = `<div class="retreat-no-schedules-msg">${modalStrings.no_schedules}</div>`;
+                    $('#retreat-proceed-booking-btn').hide();
+                    $('#retreat-waiting-other-dates-btn').text(modalStrings.put_waiting_list).show();
+                }
+
+                $('#retreat-schedule-list-container').html(html);
+                $('#retreat-schedule-selection-modal').css('display', 'flex').hide().fadeIn(200);
+            });
+
+            // Select a schedule
+            $(document).on('click', '.retreat-schedule-option', function() {
+                $('.retreat-schedule-option').removeClass('selected');
+                $(this).addClass('selected');
+                selectedGroupId = $(this).data('group-id');
+                $('#retreat-proceed-booking-btn').addClass('is-active');
+            });
+
+            // Proceed to booking
+            $(document).on('click', '#retreat-proceed-booking-btn', function() {
+                if (!selectedGroupId || typeof RETREAT_AJAX === 'undefined') {
                     return;
                 }
 
-                $('.retreat-date-button').removeClass('is-active');
-                if (buttonEl) {
-                    $(buttonEl).addClass('is-active');
-                }
-
+                // Load retreat details and open details modal
                 $.post(RETREAT_AJAX.url, {
                     action: 'get_retreat_details',
-                    group_id: groupId,
-                    retreat_type: type,
+                    group_id: selectedGroupId,
+                    retreat_type: currentRetreatType,
                     nonce: RETREAT_AJAX.nonce
                 }, function(response) {
                     if (response.success) {
@@ -3343,14 +3751,14 @@ function render_retreat_event_cards()
                             $('#retreat-cover-placeholder').show();
                         }
 
-                        $('#retreat-type-badge').text(typeLabels[type] || '');
+                        $('#retreat-type-badge').text(typeLabels[currentRetreatType] || '');
                         $('#retreat-title').text(d.group_title || d.title || '');
                         $('#retreat-description').text(d.description || '');
-                        $('#retreat-dates').text(d.date_range || cardStrings.tba);
-                        $('#retreat-location').text(d.location || cardStrings.tba);
+                        $('#retreat-dates').text(d.date_range || 'TBA');
+                        $('#retreat-location').text(d.location || 'TBA');
 
                         const sarPrice = d.price_sar ? String(d.price_sar).trim() : '';
-                        const priceText = sarPrice ? sarPrice + sarSuffix : cardStrings.contactPrice;
+                        const priceText = sarPrice ? sarPrice + (isAr ? ' ر.س' : ' SAR') : (isAr ? 'تواصل لمعرفة السعر' : 'Contact for price');
                         $('#retreat-price').text(priceText);
                         $('#retreat-price-sar').text(priceText);
 
@@ -3368,24 +3776,37 @@ function render_retreat_event_cards()
                             $('#package-includes-section').hide();
                         }
 
-                        window.selectedRetreatType = type;
-                        window.selectedGroupId = groupId;
+                        window.selectedRetreatType = currentRetreatType;
+                        window.selectedGroupId = selectedGroupId;
                         window.selectedRetreatData = d;
 
-                        $('#retreat-details-modal').css('display', 'flex').hide().fadeIn(300);
-                    } else {
-                        alert(cardStrings.loadError);
+                        $('#retreat-schedule-selection-modal').fadeOut(200, function() {
+                            $('#retreat-details-modal').css('display', 'flex').hide().fadeIn(300);
+                        });
                     }
                 });
-            }
-
-            $(document).on('click', '.retreat-date-button', function(e) {
-                e.preventDefault();
-                const type = $(this).data('type');
-                const groupId = $(this).data('group-id');
-                openRetreatModal(type, groupId, this);
             });
 
+            // Waiting list buttons
+            $(document).on('click', '#retreat-waiting-other-dates-btn', function() {
+                $('#retreat-schedule-selection-modal').fadeOut(200, function() {
+                    $('#waiting_retreat_type').val(currentRetreatType);
+                    $('#retreat-waiting-modal').css('display', 'flex').hide().fadeIn(300);
+                });
+            });
+
+            // Close modal
+            $(document).on('click', '.retreat-schedule-selection-close', function() {
+                $('#retreat-schedule-selection-modal').fadeOut(200);
+            });
+
+            $(document).on('click', '#retreat-schedule-selection-modal', function(e) {
+                if (e.target.id === 'retreat-schedule-selection-modal') {
+                    $(this).fadeOut(200);
+                }
+            });
+
+            // Book spot button handler
             $(document).on('click', '#book-spot-btn', function() {
                 if (window.selectedRetreatType && window.selectedGroupId) {
                     $('#reg_retreat_type').val(window.selectedRetreatType);
