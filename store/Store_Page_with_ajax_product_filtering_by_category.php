@@ -180,11 +180,12 @@ function tashafe_category_tabs_assets() {
 
         .tashafe-products ul.products {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(300px, 350px));
             gap: 24px;
             list-style: none;
             padding: 0;
             width: 100%;
+            justify-content: center;
         }
 
         .tashafe-products ul.products li.product {
@@ -194,7 +195,7 @@ function tashafe_category_tabs_assets() {
         /* Tablet: 2 products per row */
         @media (max-width: 768px) {
             .tashafe-products ul.products {
-                grid-template-columns: repeat(2, 1fr);
+                grid-template-columns: repeat(auto-fit, minmax(250px, 350px));
             }
         }
 
