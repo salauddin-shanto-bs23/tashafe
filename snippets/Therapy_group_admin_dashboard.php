@@ -3847,6 +3847,33 @@ function tbc_process_expired_groups() {
     // ============================================================================
 
     /**
+     * Check if a BuddyPress group is a retreat group
+     * Retreat groups should NEVER have chat restrictions (always active)
+     * 
+     * @param int $bp_group_id BuddyPress group ID
+     * @return bool True if group is a retreat group, false otherwise
+     */
+    function tbc_is_retreat_group($bp_group_id) {
+        if (!$bp_group_id || $bp_group_id <= 0) {
+            return false;
+        }
+        
+        // Retreat group slugs that should always be available
+        $retreat_slugs = ['female-retreat', 'male-retreat', 'teen-retreat'];
+        
+        if (!function_exists('groups_get_group')) {
+            return false;
+        }
+        
+        $group = groups_get_group($bp_group_id);
+        if (!$group || empty($group->slug)) {
+            return false;
+        }
+        
+        return in_array($group->slug, $retreat_slugs, true);
+    }
+
+    /**
      * Frontend: Disable Better Messages composer on BP group messages page when chat is not active.
      * Users can still read history, but cannot type/send.
      */
@@ -3868,6 +3895,11 @@ function tbc_process_expired_groups() {
 
       $bp_group_id = intval(bp_get_current_group_id());
       if ($bp_group_id <= 0) {
+        return;
+      }
+
+      // SKIP retreat groups - they should ALWAYS be available
+      if (function_exists('tbc_is_retreat_group') && tbc_is_retreat_group($bp_group_id)) {
         return;
       }
 
@@ -4133,6 +4165,11 @@ function tbc_process_expired_groups() {
         return $args;
       }
 
+      // SKIP retreat groups - they should ALWAYS be available
+      if (function_exists('tbc_is_retreat_group') && tbc_is_retreat_group($bp_group_id)) {
+        return $args;
+      }
+
       $state = tbc_get_chat_state_for_bp_group($bp_group_id);
 
       if ($state === 'expired') {
@@ -4152,6 +4189,11 @@ function tbc_process_expired_groups() {
      * Determine chat state for a BP group based on persisted BP group meta.
      */
     function tbc_get_chat_state_for_bp_group($bp_group_id) {
+      // SKIP retreat groups - they are ALWAYS active
+      if (function_exists('tbc_is_retreat_group') && tbc_is_retreat_group($bp_group_id)) {
+        return 'active';
+      }
+      
       if (!function_exists('groups_get_groupmeta')) {
         return 'missing_dates';
       }
@@ -4389,6 +4431,11 @@ function tbc_block_bm_rest_send_when_chat_locked($result, $server, $request) {
   $bp_group_id = tbc_get_bp_group_id_from_bm_thread($thread_id);
   if ($bp_group_id <= 0) {
     // Not a BP group chat thread.
+    return $result;
+  }
+
+  // SKIP retreat groups - they should ALWAYS be available
+  if (function_exists('tbc_is_retreat_group') && tbc_is_retreat_group($bp_group_id)) {
     return $result;
   }
 
