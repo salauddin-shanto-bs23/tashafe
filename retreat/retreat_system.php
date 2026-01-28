@@ -1,4 +1,11 @@
 <?php
+/**
+ * Retreat System Main File
+ * 
+ * NOTE: PayTabs integration code is in a separate snippet
+ * No includes needed - runs independently
+ */
+
 // Register Retreat Group Custom Post Type
 add_action('init', function () {
 
@@ -1418,6 +1425,7 @@ add_action('wp_footer', function () {
             <form id="retreat-register-form" enctype="multipart/form-data">
                 <input type="hidden" name="retreat_type" id="reg_retreat_type">
                 <input type="hidden" name="group_id" id="reg_group_id">
+                <input type="hidden" name="amount" id="reg_amount">
 
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                     <div class="form-group">
@@ -2356,6 +2364,100 @@ add_action('wp_footer', function () {
 
     <script>
         jQuery(document).ready(function($) {
+            // ===== PAYMENT RETURN HANDLING =====
+            // Check if we're returning from PayTabs payment
+            const urlParams = new URLSearchParams(window.location.search);
+            const paymentReturnToken = urlParams.get('payment_return');
+            
+            if (paymentReturnToken) {
+                console.log('Payment return detected, token:', paymentReturnToken);
+                console.log('RETREAT_AJAX:', RETREAT_AJAX);
+                
+                // Show loading modal or message
+                $('body').append('<div id="payment-verification-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;padding:40px;border-radius:10px;text-align:center;"><div style="border:4px solid #f3f3f3;border-top:4px solid #6059A6;border-radius:50%;width:50px;height:50px;animation:spin 1s linear infinite;margin:0 auto 20px;"></div><h3 style="color:#333;">Verifying Your Payment...</h3><p style="color:#666;">Please wait while we confirm your payment.</p></div></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>');
+                
+                console.log('Calling verify_retreat_payment_status...');
+                
+                // Verify payment status via AJAX
+                $.post(RETREAT_AJAX.url, {
+                    action: 'verify_retreat_payment_status',
+                    token: paymentReturnToken,
+                    nonce: RETREAT_AJAX.nonce
+                }, function(response) {
+                    console.log('Payment verification response:', response);
+                    $('#payment-verification-overlay').remove();
+                    
+                    if (response.success && response.data.payment_verified) {
+                        // Payment successful - store token and open questionnaire modal
+                        console.log('Payment verified successfully');
+                        console.log('Scroll section:', response.data.scroll_to_section);
+                        console.log('Retreat type:', response.data.retreat_type);
+                        
+                        // Store booking token for questionnaire submission
+                        if ($('#booking-token').length === 0) {
+                            $('body').append('<input type="hidden" id="booking-token" value="' + paymentReturnToken + '">');
+                            console.log('Created booking token hidden input');
+                        } else {
+                            $('#booking-token').val(paymentReturnToken);
+                            console.log('Updated existing booking token hidden input');
+                        }
+                        
+                        // Clean URL
+                        const cleanUrl = window.location.pathname;
+                        window.history.replaceState({}, document.title, cleanUrl);
+                        console.log('URL cleaned to:', cleanUrl);
+                        
+                        // Scroll to the retreat section if provided
+                        if (response.data.scroll_to_section) {
+                            const scrollSection = response.data.scroll_to_section;
+                            console.log('Attempting to scroll to section:', scrollSection);
+                            
+                            // Find the retreat option button with matching data-type
+                            const sectionButton = $('.retreat-option[data-type="' + scrollSection + '"]');
+                            console.log('Found section button:', sectionButton.length, 'elements');
+                            
+                            if (sectionButton.length > 0) {
+                                const scrollTarget = sectionButton.closest('section, .retreat-section, .section');
+                                console.log('Scroll target:', scrollTarget.length, 'elements');
+                                if (scrollTarget.length > 0) {
+                                    // Scroll to the section smoothly
+                                    $('html, body').animate({
+                                        scrollTop: scrollTarget.offset().top - 100
+                                    }, 600);
+                                    console.log('Scrolling to position:', scrollTarget.offset().top - 100);
+                                }
+                            }
+                        }
+                        
+                        // Check if modal exists
+                        const questionnaireModal = $('#retreat-questionnaire-modal');
+                        console.log('Questionnaire modal exists:', questionnaireModal.length > 0);
+                        console.log('Modal current display:', questionnaireModal.css('display'));
+                        
+                        // Auto-open questionnaire modal after 1000ms (allowing time for scroll)
+                        console.log('Setting timeout to open modal in 1000ms...');
+                        setTimeout(function() {
+                            console.log('Timeout fired, opening questionnaire modal now');
+                            const modal = $('#retreat-questionnaire-modal');
+                            console.log('Modal element:', modal.length, 'found');
+                            modal.css('display', 'flex').hide().fadeIn(300);
+                            console.log('Modal opened, new display:', modal.css('display'));
+                        }, 1000);
+                        
+                    } else {
+                        // Payment failed or not verified
+                        const errorMsg = response.data && response.data.message ? response.data.message : 'Payment verification failed';
+                        console.error('Payment verification failed:', errorMsg);
+                        alert('Payment Error: ' + errorMsg + '\n\nPlease contact support if you were charged.');
+                    }
+                }).fail(function(xhr, status, error) {
+                    console.error('AJAX call failed:', status, error);
+                    console.error('Response:', xhr.responseText);
+                    $('#payment-verification-overlay').remove();
+                    alert('Unable to verify payment status. Please contact support.');
+                });
+            }
+            
             // ===== GLOBAL STATE =====
             // Using window scope to allow access from card shortcode
             window.selectedRetreatType = window.selectedRetreatType || '';
@@ -2552,6 +2654,9 @@ add_action('wp_footer', function () {
                         let priceText = sarPrice ? sarPrice + ' SAR' : 'Contact for price';
                         $('#retreat-price').text(priceText);
                         $('#retreat-price-sar').text(priceText);
+                        
+                        // Store amount for payment (use numeric value or 0)
+                        window.retreatAmount = parseFloat(sarPrice) || 0;
 
                         // Package includes
                         if (d.package_items && d.package_items.length > 0) {
@@ -2582,6 +2687,7 @@ add_action('wp_footer', function () {
                     // Pre-fill hidden fields in registration form
                     $('#reg_retreat_type').val(selectedRetreatType || window.selectedRetreatType);
                     $('#reg_group_id').val(selectedGroupId || window.selectedGroupId);
+                    $('#reg_amount').val(window.retreatAmount || 0);
                     $('#retreat-register-modal').css('display', 'flex').hide().fadeIn(300);
 
                     // Initialize Select2 for country dropdown
@@ -2693,7 +2799,7 @@ add_action('wp_footer', function () {
                 }
             });
 
-            // Registration form submission - go to questionnaire
+            // Registration form submission - redirect to payment
             $(document).on('submit', '#retreat-register-form', function(e) {
                 e.preventDefault();
 
@@ -2721,17 +2827,75 @@ add_action('wp_footer', function () {
                     return;
                 }
 
-                // Store form data
-                registrationData = new FormData(this);
-                registrationData.append('action', 'register_retreat_user');
-                registrationData.append('nonce', RETREAT_AJAX.nonce);
+                const submitBtn = $('#reg-submit-btn');
+                submitBtn.prop('disabled', true).html('Processing payment...');
 
-                // Close registration modal and open questionnaire
-                $('#retreat-register-modal').fadeOut(300, function() {
-                    questionAnswers = {};
-                    $('#retreat-questionnaire-modal').css('display', 'flex').hide().fadeIn(300);
+                // Step 1: Save booking data to transient
+                const formData = new FormData(this);
+                formData.append('action', 'save_retreat_booking_data');
+                formData.append('nonce', RETREAT_AJAX.nonce);
+                
+                // Add return URL and scroll section for payment redirect
+                formData.append('return_url', window.location.origin + window.location.pathname);
+                formData.append('scroll_to_section', window.selectedRetreatType || '');
+                
+                // DEBUG: Log form data
+                console.log('=== FORM SUBMISSION DEBUG ===');
+                console.log('retreat_type:', $('#reg_retreat_type').val());
+                console.log('group_id:', $('#reg_group_id').val());
+                console.log('amount:', $('#reg_amount').val());
+                console.log('window.selectedGroupId:', window.selectedGroupId);
+                console.log('window.selectedRetreatType:', window.selectedRetreatType);
+
+                $.ajax({
+                    url: RETREAT_AJAX.url,
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.success) {
+                            const bookingToken = response.data.token;
+                            console.log('Booking saved, initiating payment:', bookingToken);
+                            
+                            // Step 2: Initiate PayTabs payment
+                            initiateRetreatPayment(bookingToken, submitBtn);
+                        } else {
+                            const errorMsg = (response.data && response.data.message) ? response.data.message : 
+                                           (typeof response.data === 'string' ? response.data : 'Failed to save booking data');
+                            alert(errorMsg);
+                            submitBtn.prop('disabled', false).html('Book Your Spot <span style="font-size:18px;">📅</span>');
+                        }
+                    },
+                    error: function() {
+                        alert('An error occurred. Please try again.');
+                        submitBtn.prop('disabled', false).html('Book Your Spot <span style="font-size:18px;">📅</span>');
+                    }
                 });
             });
+
+            // Function to initiate payment
+            function initiateRetreatPayment(token, submitBtn) {
+                $.post(RETREAT_AJAX.url, {
+                    action: 'initiate_retreat_payment',
+                    token: token,
+                    nonce: RETREAT_AJAX.nonce
+                }, function(response) {
+                    if (response.success && response.data.redirect_url) {
+                        console.log('Payment initiated, redirecting to PayTabs...');
+                        // Redirect to PayTabs payment page
+                        window.location.href = response.data.redirect_url;
+                    } else {
+                        const errorMsg = (response.data && response.data.message) ? response.data.message : 
+                                       (typeof response.data === 'string' ? response.data : 'Unknown error');
+                        alert('Payment initiation failed: ' + errorMsg);
+                        submitBtn.prop('disabled', false).html('Book Your Spot <span style="font-size:18px;">📅</span>');
+                    }
+                }).fail(function() {
+                    alert('Payment gateway error. Please try again.');
+                    submitBtn.prop('disabled', false).html('Book Your Spot <span style="font-size:18px;">📅</span>');
+                });
+            }
 
             // Back from registration to details
             $(document).on('click', '#register-back-btn', function() {
@@ -2752,10 +2916,12 @@ add_action('wp_footer', function () {
             });
 
             // ===== STEP 5: QUESTIONNAIRE MODAL (Single Page) =====
-            // Submit questionnaire - complete registration
+            // Submit questionnaire - complete registration after payment
             $(document).on('click', '#submit-questionnaire-btn', function() {
                 // Collect all answers
+                let questionAnswers = {};
                 let allAnswered = true;
+                
                 $('.q-answer').each(function() {
                     const qIndex = $(this).data('question');
                     if ($(this).is('textarea')) {
@@ -2782,38 +2948,36 @@ add_action('wp_footer', function () {
                 const btn = $(this);
                 btn.prop('disabled', true).text('Submitting...');
 
-                registrationData.append('questionnaire_answers', JSON.stringify(questionAnswers));
+                // Get booking token from hidden input (set on payment return page)
+                const bookingToken = $('#booking-token').val();
+                
+                if (!bookingToken) {
+                    alert('Session error. Please try booking again.');
+                    btn.prop('disabled', false).text('Submit Information');
+                    return;
+                }
 
-                $.ajax({
-                    url: RETREAT_AJAX.url,
-                    type: 'POST',
-                    data: registrationData,
-                    processData: false,
-                    contentType: false,
-                    success: function(response) {
-                        if (response.success) {
-                            $('#retreat-questionnaire-modal').fadeOut(300, function() {
-                                showChatPopup(
-                                    response.data.chat_link,
-                                    response.data.private_channel_link,
-                                    response.data.suggested_nickname,
-                                    response.data.retreat_dates,
-                                    response.data.trip_destination,
-                                    response.data.trip_dates,
-                                    response.data.retreat_type,
-                                    response.data.chat_join_token,
-                                    response.data.user_id
-                                );
-                            });
-                        } else {
-                            alert(response.data.message || 'Registration failed');
-                            btn.prop('disabled', false).text('Submit Information');
-                        }
-                    },
-                    error: function() {
-                        alert('An error occurred. Please try again.');
+                // Complete registration with questionnaire answers
+                $.post(RETREAT_AJAX.url, {
+                    action: 'complete_retreat_registration',
+                    token: bookingToken,
+                    questionnaire_answers: JSON.stringify(questionAnswers),
+                    nonce: RETREAT_AJAX.nonce
+                }, function(response) {
+                    if (response.success) {
+                        // Registration complete - show success modal
+                        $('#retreat-questionnaire-modal').fadeOut(300, function() {
+                            $('#retreat-chat-modal').css('display', 'flex').hide().fadeIn(300);
+                        });
+                    } else {
+                        const errorMsg = (response.data && response.data.message) ? response.data.message : 
+                                       (typeof response.data === 'string' ? response.data : 'Registration failed');
+                        alert(errorMsg);
                         btn.prop('disabled', false).text('Submit Information');
                     }
+                }).fail(function() {
+                    alert('An error occurred. Please try again.');
+                    btn.prop('disabled', false).text('Submit Information');
                 });
             });
 
@@ -2905,7 +3069,9 @@ add_action('wp_footer', function () {
                             });
                         }, 3000);
                     } else {
-                        alert(response.data.message || 'Failed to join waiting list');
+                        const errorMsg = (response.data && response.data.message) ? response.data.message : 
+                                       (typeof response.data === 'string' ? response.data : 'Failed to join waiting list');
+                        alert(errorMsg);
                         $('#retreat-waiting-form button').prop('disabled', false).text('Join Waiting List');
                     }
                 });
@@ -3761,6 +3927,9 @@ function render_retreat_event_cards()
                         const priceText = sarPrice ? sarPrice + (isAr ? ' ر.س' : ' SAR') : (isAr ? 'تواصل لمعرفة السعر' : 'Contact for price');
                         $('#retreat-price').text(priceText);
                         $('#retreat-price-sar').text(priceText);
+                        
+                        // Store amount for payment
+                        window.retreatAmount = parseFloat(sarPrice) || 0;
 
                         if (d.package_items && d.package_items.length > 0) {
                             let listHtml = '';
@@ -3811,6 +3980,7 @@ function render_retreat_event_cards()
                 if (window.selectedRetreatType && window.selectedGroupId) {
                     $('#reg_retreat_type').val(window.selectedRetreatType);
                     $('#reg_group_id').val(window.selectedGroupId);
+                    $('#reg_amount').val(window.retreatAmount || 0);
                 }
             });
         });
