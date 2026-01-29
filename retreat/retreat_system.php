@@ -2393,6 +2393,12 @@ add_action('wp_footer', function () {
                         console.log('Scroll section:', response.data.scroll_to_section);
                         console.log('Retreat type:', response.data.retreat_type);
                         
+                        // Update nonce if a fresh one was provided (after auto-login)
+                        if (response.data.fresh_nonce) {
+                            RETREAT_AJAX.nonce = response.data.fresh_nonce;
+                            console.log('Updated to fresh nonce after auto-login');
+                        }
+                        
                         // Store booking token for questionnaire submission
                         if ($('#booking-token').length === 0) {
                             $('body').append('<input type="hidden" id="booking-token" value="' + paymentReturnToken + '">');
@@ -2951,6 +2957,11 @@ add_action('wp_footer', function () {
                 // Get booking token from hidden input (set on payment return page)
                 const bookingToken = $('#booking-token').val();
                 
+                console.log('=== QUESTIONNAIRE SUBMISSION ===');
+                console.log('Booking token:', bookingToken);
+                console.log('Current nonce:', RETREAT_AJAX.nonce);
+                console.log('Number of answers:', Object.keys(questionAnswers).length);
+                
                 if (!bookingToken) {
                     alert('Session error. Please try booking again.');
                     btn.prop('disabled', false).text('Submit Information');
@@ -2964,7 +2975,9 @@ add_action('wp_footer', function () {
                     questionnaire_answers: JSON.stringify(questionAnswers),
                     nonce: RETREAT_AJAX.nonce
                 }, function(response) {
+                    console.log('Questionnaire submission response:', response);
                     if (response.success) {
+                        console.log('Questionnaire submitted successfully');
                         // Registration complete - show success modal
                         $('#retreat-questionnaire-modal').fadeOut(300, function() {
                             $('#retreat-chat-modal').css('display', 'flex').hide().fadeIn(300);
@@ -2972,10 +2985,13 @@ add_action('wp_footer', function () {
                     } else {
                         const errorMsg = (response.data && response.data.message) ? response.data.message : 
                                        (typeof response.data === 'string' ? response.data : 'Registration failed');
+                        console.error('Questionnaire submission failed:', errorMsg);
                         alert(errorMsg);
                         btn.prop('disabled', false).text('Submit Information');
                     }
-                }).fail(function() {
+                }).fail(function(xhr, status, error) {
+                    console.error('AJAX call failed:', status, error);
+                    console.error('Response:', xhr.responseText);
                     alert('An error occurred. Please try again.');
                     btn.prop('disabled', false).text('Submit Information');
                 });

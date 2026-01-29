@@ -294,25 +294,96 @@ add_filter('query_vars', 'paytabs_query_vars');
 
 /**
  * Handle PayTabs callback/webhook
+ * 
+ * ENHANCED: Now creates user and completes booking immediately on successful payment.
+ * This ensures booking is never lost even if user closes browser after payment.
  */
 function paytabs_handle_callback() {
     if (get_query_var('payment_callback')) {
         $json = file_get_contents('php://input');
         $data = json_decode($json, true);
         
+        error_log('=== PAYTABS IPN CALLBACK RECEIVED ===');
         paytabs_log_transaction('callback', $data);
         
-        // Update transient if cart_id is present
-        if (isset($data['cart_id'])) {
-            $cart_key = 'retreat_' . $data['cart_id'];
-            $booking_data = get_transient($cart_key);
-            
-            if ($booking_data) {
-                $booking_data['payment_callback'] = $data;
-                $booking_data['payment_status'] = ($data['payment_result']['response_status'] === 'A') ? 'completed' : 'failed';
-                set_transient($cart_key, $booking_data, 3600);
-            }
+        // Validate callback data
+        if (!isset($data['cart_id']) || empty($data['cart_id'])) {
+            error_log('IPN ERROR: No cart_id in callback data');
+            wp_send_json(['status' => 'error', 'message' => 'No cart_id']);
+            exit;
         }
+        
+        $booking_token = sanitize_text_field($data['cart_id']);
+        $cart_key = 'retreat_' . $booking_token;
+        $booking_data = get_transient($cart_key);
+        
+        if (!$booking_data) {
+            error_log('IPN ERROR: Transient not found for token: ' . $booking_token);
+            wp_send_json(['status' => 'error', 'message' => 'Booking data not found']);
+            exit;
+        }
+        
+        // Store callback data
+        $booking_data['payment_callback'] = $data;
+        $booking_data['tran_ref'] = $data['tran_ref'] ?? ($booking_data['tran_ref'] ?? '');
+        
+        // Check payment status
+        $payment_status = $data['payment_result']['response_status'] ?? '';
+        
+        if ($payment_status === 'A') {
+            // Payment APPROVED - Create booking immediately!
+            error_log('IPN: Payment APPROVED for token: ' . $booking_token);
+            
+            $booking_data['payment_status'] = 'completed';
+            $booking_data['booking_state'] = 'payment_completed';
+            $booking_data['ipn_processed_at'] = current_time('mysql');
+            
+            // ★★★ CRITICAL: Create booking immediately ★★★
+            $booking_result = process_retreat_booking_from_ipn($booking_data, $booking_token);
+            
+            if ($booking_result['success']) {
+                // Update transient with user_id and new state
+                $booking_data['user_id'] = $booking_result['user_id'];
+                $booking_data['booking_state'] = 'booking_confirmed';
+                $booking_data['booking_created_at'] = current_time('mysql');
+                error_log('IPN SUCCESS: Retreat booking auto-created for user ID: ' . $booking_result['user_id']);
+            } else {
+                // Log error but keep transient for fallback/manual recovery
+                $booking_data['booking_state'] = 'payment_completed'; // Payment done but booking failed
+                if (!isset($booking_data['booking_errors'])) {
+                    $booking_data['booking_errors'] = [];
+                }
+                $booking_data['booking_errors'][] = [
+                    'timestamp' => current_time('mysql'),
+                    'message' => $booking_result['message']
+                ];
+                error_log('IPN ERROR: Failed to create booking: ' . $booking_result['message']);
+                
+                // Send admin notification about failed booking
+                wp_mail(
+                    get_option('admin_email'),
+                    '[URGENT] Retreat IPN Booking Failed - Manual Review Required',
+                    "A retreat booking failed to process after successful payment.\n\n" .
+                    "Booking Token: {$booking_token}\n" .
+                    "Error: " . $booking_result['message'] . "\n" .
+                    "User Email: " . ($booking_data['personal_info']['email'] ?? 'N/A') . "\n" .
+                    "Amount Paid: " . ($booking_data['amount'] ?? 'N/A') . " " . ($booking_data['currency'] ?? 'SAR') . "\n\n" .
+                    "Transaction Reference: " . ($booking_data['tran_ref'] ?? 'N/A') . "\n\n" .
+                    "Please manually create the booking in WordPress admin.",
+                    ['Content-Type: text/plain; charset=UTF-8']
+                );
+            }
+            
+        } else {
+            // Payment FAILED or DECLINED
+            error_log('IPN: Payment FAILED for token: ' . $booking_token . ' (status: ' . $payment_status . ')');
+            $booking_data['payment_status'] = 'failed';
+            $booking_data['booking_state'] = 'failed';
+            $booking_data['failure_reason'] = $data['payment_result']['response_message'] ?? 'Unknown';
+        }
+        
+        // Save updated transient with 24-hour TTL (increased for recovery window)
+        set_transient($cart_key, $booking_data, 86400);
         
         // Respond to PayTabs
         wp_send_json(['status' => 'received']);
@@ -320,6 +391,292 @@ function paytabs_handle_callback() {
     }
 }
 add_action('template_redirect', 'paytabs_handle_callback');
+
+// ============================================================================
+// SECTION 1.5: IPN-DRIVEN BOOKING FUNCTIONS
+// ============================================================================
+
+/**
+ * Process retreat booking immediately from IPN/webhook
+ * 
+ * This function creates the user account, assigns them to the retreat,
+ * enrolls them in BuddyPress chat group, and sends confirmation email.
+ * Idempotent: Can be safely called multiple times with same data.
+ * 
+ * @param array $booking_data Booking information from transient
+ * @param string $booking_token Unique booking token
+ * @return array ['success' => bool, 'user_id' => int|null, 'message' => string]
+ */
+function process_retreat_booking_from_ipn($booking_data, $booking_token) {
+    global $wpdb;
+    
+    error_log('=== IPN BOOKING PROCESSOR START ===');
+    error_log('Token: ' . $booking_token);
+    
+    // ============================================
+    // 1. IDEMPOTENCY CHECK
+    // ============================================
+    // If user already created (by previous IPN or frontend), return success
+    if (!empty($booking_data['user_id'])) {
+        $existing_user = get_user_by('id', $booking_data['user_id']);
+        if ($existing_user) {
+            error_log('IPN: User already exists (ID: ' . $booking_data['user_id'] . '), skipping creation');
+            return [
+                'success' => true,
+                'user_id' => $booking_data['user_id'],
+                'message' => 'User already created'
+            ];
+        }
+    }
+    
+    $personal_info = $booking_data['personal_info'] ?? [];
+    $email = $personal_info['email'] ?? '';
+    
+    if (empty($email)) {
+        error_log('IPN ERROR: No email in booking data');
+        return [
+            'success' => false,
+            'user_id' => null,
+            'message' => 'No email in booking data'
+        ];
+    }
+    
+    // Check if email already registered
+    $existing_user = get_user_by('email', $email);
+    if ($existing_user) {
+        // Email exists - use existing account
+        $user_id = $existing_user->ID;
+        error_log('IPN: Email exists, using existing user ID: ' . $user_id);
+    } else {
+        // ============================================
+        // 2. CREATE NEW USER ACCOUNT
+        // ============================================
+        $username = sanitize_user($email);
+        $password = $personal_info['password'] ?? wp_generate_password(12, true);
+        
+        $user_id = wp_create_user($username, $password, $email);
+        
+        if (is_wp_error($user_id)) {
+            error_log('IPN ERROR: Failed to create user: ' . $user_id->get_error_message());
+            return [
+                'success' => false,
+                'user_id' => null,
+                'message' => 'Failed to create user: ' . $user_id->get_error_message()
+            ];
+        }
+        
+        error_log('IPN: Created new user ID: ' . $user_id);
+    }
+    
+    // ============================================
+    // 3. SAVE USER METADATA
+    // ============================================
+    $full_name = $personal_info['full_name'] ?? '';
+    $names = explode(' ', trim($full_name), 2);
+    $first_name = $names[0] ?? '';
+    
+    update_user_meta($user_id, 'full_name', $full_name);
+    update_user_meta($user_id, 'first_name', $first_name);
+    update_user_meta($user_id, 'phone', $personal_info['phone'] ?? '');
+    update_user_meta($user_id, 'country', $personal_info['country'] ?? '');
+    update_user_meta($user_id, 'gender', $personal_info['gender'] ?? '');
+    update_user_meta($user_id, 'birth_date', $personal_info['birth_date'] ?? '');
+    update_user_meta($user_id, 'retreat_type', $booking_data['retreat_type'] ?? '');
+    
+    // Payment metadata
+    update_user_meta($user_id, 'payment_transaction_id', $booking_data['tran_ref'] ?? '');
+    update_user_meta($user_id, 'payment_amount', $booking_data['amount'] ?? 0);
+    
+    // Passport file
+    if (!empty($booking_data['passport_url'])) {
+        update_user_meta($user_id, 'passport_scan', $booking_data['passport_url']);
+    }
+    
+    // ============================================
+    // 4. ASSIGN TO RETREAT GROUP (CRITICAL!)
+    // ============================================
+    $group_id = intval($booking_data['group_id'] ?? 0);
+    if ($group_id <= 0) {
+        error_log('IPN ERROR: Invalid group_id: ' . $group_id);
+        return [
+            'success' => false,
+            'user_id' => $user_id,
+            'message' => 'Invalid group_id: ' . $group_id
+        ];
+    }
+    
+    $update_result = update_user_meta($user_id, 'assigned_retreat_group', $group_id);
+    
+    if ($update_result === false) {
+        // Check if same value already exists (update returns false if no change)
+        $existing_group = get_user_meta($user_id, 'assigned_retreat_group', true);
+        if ($existing_group != $group_id) {
+            error_log('IPN ERROR: Failed to assign user to retreat group');
+            return [
+                'success' => false,
+                'user_id' => $user_id,
+                'message' => 'Failed to assign user to retreat group'
+            ];
+        }
+    }
+    
+    error_log('IPN: Assigned user ' . $user_id . ' to retreat group: ' . $group_id);
+    
+    // ============================================
+    // 5. ENROLL IN BUDDYPRESS CHAT GROUP
+    // ============================================
+    if (function_exists('enroll_retreat_user_to_bp_chat_group')) {
+        // Get retreat start date for nickname
+        $start_date = '';
+        if ($group_id > 0 && function_exists('get_field')) {
+            $start_date = get_field('start_date', $group_id);
+        }
+        
+        error_log('IPN: Enrolling user in BuddyPress chat group');
+        error_log('IPN: Retreat type: ' . ($booking_data['retreat_type'] ?? 'unknown'));
+        error_log('IPN: First name: ' . $first_name);
+        error_log('IPN: Start date: ' . $start_date);
+        
+        $bp_result = enroll_retreat_user_to_bp_chat_group(
+            $user_id,
+            $booking_data['retreat_type'] ?? '',
+            $first_name,
+            $start_date
+        );
+        
+        if ($bp_result) {
+            error_log('IPN: ✓ Enrolled user in BuddyPress chat group');
+        } else {
+            error_log('IPN WARNING: BuddyPress enrollment failed (non-fatal)');
+            // Don't fail the entire booking for BP enrollment failure
+        }
+    } else {
+        error_log('IPN WARNING: enroll_retreat_user_to_bp_chat_group function not available');
+    }
+    
+    // ============================================
+    // 6. SEND CONFIRMATION EMAIL
+    // ============================================
+    $retreat_title = get_the_title($group_id);
+    $start_date = '';
+    $end_date = '';
+    $destination = '';
+    
+    if (function_exists('get_field')) {
+        $start_date = get_field('start_date', $group_id);
+        $end_date = get_field('end_date', $group_id);
+        $destination = get_field('trip_destination', $group_id);
+    }
+    
+    $email_subject = 'Retreat Booking Confirmation - Tanafs';
+    $email_body = "Dear {$full_name},\n\n";
+    $email_body .= "Thank you for booking your retreat with Tanafs!\n\n";
+    $email_body .= "Your retreat booking has been confirmed.\n\n";
+    $email_body .= "Retreat: {$retreat_title}\n";
+    if ($start_date && $end_date) {
+        $email_body .= "Dates: {$start_date} to {$end_date}\n";
+    }
+    if ($destination) {
+        $email_body .= "Destination: {$destination}\n";
+    }
+    $email_body .= "\nPayment Transaction ID: " . ($booking_data['tran_ref'] ?? 'N/A') . "\n";
+    $email_body .= "Amount Paid: " . ($booking_data['amount'] ?? '0') . " " . ($booking_data['currency'] ?? 'SAR') . "\n\n";
+    $email_body .= "Please complete the wellness questionnaire when you return to the site.\n\n";
+    $email_body .= "You can login at: " . wp_login_url() . "\n\n";
+    $email_body .= "We look forward to seeing you!\n\n";
+    $email_body .= "Best regards,\nTanafs Team";
+    
+    wp_mail($email, $email_subject, $email_body);
+    
+    error_log('IPN: Sent confirmation email to: ' . $email);
+    
+    // ============================================
+    // 7. RETURN SUCCESS
+    // ============================================
+    error_log('=== IPN BOOKING PROCESSOR SUCCESS ===');
+    error_log('User ID: ' . $user_id);
+    
+    return [
+        'success' => true,
+        'user_id' => $user_id,
+        'message' => 'Booking created successfully'
+    ];
+}
+
+/**
+ * Save questionnaire answers to database
+ * Extracted for reusability between IPN and frontend flows
+ * 
+ * @param int $user_id WordPress user ID
+ * @param string $questionnaire_json JSON encoded questionnaire answers
+ * @param array $booking_data Booking data containing retreat_type and group_id
+ * @return bool True on success, false on failure
+ */
+function save_retreat_questionnaire_answers($user_id, $questionnaire_json, $booking_data) {
+    global $wpdb;
+    
+    $questionnaire = json_decode(stripslashes($questionnaire_json), true);
+    
+    if (!is_array($questionnaire) || empty($questionnaire)) {
+        error_log('Invalid questionnaire data for user: ' . $user_id);
+        return false;
+    }
+    
+    // Define questionnaire questions (must match retreat_system.php)
+    $questions = [
+        'Do you have any chronic illnesses?',
+        'Have you had any previous surgeries or injuries?',
+        'Have you ever been diagnosed with any psychological disorder?',
+        'Are you currently taking any psychiatric or other medications?',
+        'How are you feeling during this period of your life?',
+        'How do your emotions affect your daily life and relationships?',
+        'Do you have any fears or challenges you would like to discuss in the group?',
+        'How do you think group therapy sessions can support you in achieving what you are aiming for?',
+        'What steps have you taken so far to overcome the challenges you are facing?',
+        'What is your level of comfort with sharing and expressing your emotions within a group?',
+        'Have you practiced yoga before?',
+        'Do you have any food allergies or follow any specific dietary restrictions?'
+    ];
+    
+    $table_name = $wpdb->prefix . 'retreat_questionnaire_answers';
+    
+    error_log('=== SAVING QUESTIONNAIRE ANSWERS (HELPER) ===');
+    error_log('User ID: ' . $user_id);
+    error_log('Number of answers: ' . count($questionnaire));
+    
+    // Delete old answers for this user if any (to allow re-submission)
+    $deleted = $wpdb->delete($table_name, ['user_id' => $user_id], ['%d']);
+    if ($deleted) {
+        error_log("Deleted {$deleted} old questionnaire answers for user {$user_id}");
+    }
+    
+    $saved_count = 0;
+    foreach ($questionnaire as $index => $answer) {
+        if (isset($questions[$index]) && !empty(trim($answer))) {
+            $insert_result = $wpdb->insert(
+                $table_name,
+                [
+                    'user_id' => $user_id,
+                    'retreat_type' => $booking_data['retreat_type'] ?? '',
+                    'retreat_group_id' => $booking_data['group_id'] ?? 0,
+                    'question_number' => intval($index) + 1,
+                    'question_text' => $questions[$index],
+                    'answer' => sanitize_textarea_field($answer)
+                ],
+                ['%d', '%s', '%d', '%d', '%s', '%s']
+            );
+            
+            if ($insert_result) {
+                $saved_count++;
+            } else {
+                error_log("Failed to insert answer for question {$index}: " . $wpdb->last_error);
+            }
+        }
+    }
+    
+    error_log("Saved {$saved_count} questionnaire answers for user {$user_id}");
+    return $saved_count > 0;
+}
 
 // ============================================================================
 // SECTION 2: RETREAT-SPECIFIC AJAX HANDLERS
@@ -475,8 +832,8 @@ add_action('wp_ajax_nopriv_initiate_retreat_payment', 'ajax_initiate_retreat_pay
 /**
  * AJAX Handler: Verify payment status after return from PayTabs
  * 
- * Checks if payment was completed successfully
- * Called when user returns to retreat page
+ * ENHANCED: Now checks if IPN already created the user and auto-logs them in.
+ * Called when user returns to retreat page.
  */
 function ajax_verify_retreat_payment_status() {
     // Verify nonce
@@ -501,42 +858,47 @@ function ajax_verify_retreat_payment_status() {
         return;
     }
     
-    // If payment status is already completed, return success
-    if (isset($booking_data['payment_status']) && $booking_data['payment_status'] === 'completed') {
-        wp_send_json_success([
-            'payment_verified' => true,
-            'message' => 'Payment verified successfully',
-            'retreat_type' => $booking_data['retreat_type'] ?? '',
-            'scroll_to_section' => $booking_data['scroll_to_section'] ?? '',
-        ]);
-        return;
-    }
+    // Check if payment is already completed (either via callback or IPN)
+    $payment_verified = false;
     
-    // If payment is still pending and we have a transaction reference, verify with PayTabs
-    if (isset($booking_data['tran_ref']) && !empty($booking_data['tran_ref'])) {
+    if (isset($booking_data['payment_status']) && $booking_data['payment_status'] === 'completed') {
+        $payment_verified = true;
+    } elseif (isset($booking_data['tran_ref']) && !empty($booking_data['tran_ref'])) {
+        // Verify with PayTabs API if payment status is still pending
         $verification = paytabs_verify_payment($booking_data['tran_ref']);
         
         if ($verification['success']) {
-            // Payment is approved - update transient
+            $payment_verified = true;
             $booking_data['payment_status'] = 'completed';
             $booking_data['payment_verification'] = $verification;
-            set_transient($transient_key, $booking_data, 3600);
             
-            wp_send_json_success([
-                'payment_verified' => true,
-                'message' => 'Payment verified successfully',
-                'retreat_type' => $booking_data['retreat_type'] ?? '',
-                'scroll_to_section' => $booking_data['scroll_to_section'] ?? '',
-            ]);
+            // ★★★ If IPN didn't process yet, create booking now (fallback) ★★★
+            if (empty($booking_data['user_id'])) {
+                error_log('VERIFY: IPN has not processed yet, creating booking now (fallback)');
+                $booking_result = process_retreat_booking_from_ipn($booking_data, $booking_token);
+                
+                if ($booking_result['success']) {
+                    $booking_data['user_id'] = $booking_result['user_id'];
+                    $booking_data['booking_state'] = 'booking_confirmed';
+                    $booking_data['booking_created_at'] = current_time('mysql');
+                    error_log('VERIFY: Fallback booking created for user ID: ' . $booking_result['user_id']);
+                } else {
+                    error_log('VERIFY ERROR: Fallback booking failed: ' . $booking_result['message']);
+                }
+            }
+            
+            // Save updated transient with 24-hour TTL
+            set_transient($transient_key, $booking_data, 86400);
         } else {
-            // Payment failed or declined
+            // Payment failed
             $booking_data['payment_status'] = 'failed';
-            set_transient($transient_key, $booking_data, 3600);
+            set_transient($transient_key, $booking_data, 86400);
             
             wp_send_json_error([
                 'payment_verified' => false,
                 'message' => $verification['message'] ?? 'Payment verification failed',
             ]);
+            return;
         }
     } else {
         // No transaction reference - payment not initiated properly
@@ -544,7 +906,41 @@ function ajax_verify_retreat_payment_status() {
             'payment_verified' => false,
             'message' => 'Payment not completed. Status: ' . ($booking_data['payment_status'] ?? 'unknown'),
         ]);
+        return;
     }
+    
+    // Payment is verified - now handle user session
+    $user_already_created = false;
+    $fresh_nonce = '';
+    
+    if (!empty($booking_data['user_id'])) {
+        $user = get_user_by('id', $booking_data['user_id']);
+        if ($user) {
+            $user_already_created = true;
+            
+            // Auto-login the user
+            if (get_current_user_id() !== $booking_data['user_id']) {
+                wp_set_current_user($booking_data['user_id']);
+                wp_set_auth_cookie($booking_data['user_id'], true);
+                do_action('wp_login', $user->user_login, $user);
+                error_log('VERIFY: Auto-logged in user ID: ' . $booking_data['user_id']);
+                
+                // Generate fresh nonce for the newly logged-in user
+                $fresh_nonce = wp_create_nonce('retreat_nonce');
+                error_log('VERIFY: Generated fresh nonce for logged-in user');
+            }
+        }
+    }
+    
+    wp_send_json_success([
+        'payment_verified' => true,
+        'user_already_created' => $user_already_created,
+        'booking_state' => $booking_data['booking_state'] ?? 'unknown',
+        'message' => 'Payment verified successfully',
+        'retreat_type' => $booking_data['retreat_type'] ?? '',
+        'scroll_to_section' => $booking_data['scroll_to_section'] ?? '',
+        'fresh_nonce' => $fresh_nonce, // Return fresh nonce if user was auto-logged in
+    ]);
 }
 add_action('wp_ajax_verify_retreat_payment_status', 'ajax_verify_retreat_payment_status');
 add_action('wp_ajax_nopriv_verify_retreat_payment_status', 'ajax_verify_retreat_payment_status');
@@ -552,12 +948,42 @@ add_action('wp_ajax_nopriv_verify_retreat_payment_status', 'ajax_verify_retreat_
 /**
  * AJAX Handler: Complete retreat registration after payment verification
  * 
- * Verifies payment status, creates user account, saves questionnaire
- * Sends confirmation email
+ * ENHANCED: Now checks if user was already created by IPN.
+ * - If user exists (created by IPN): Only saves questionnaire answers
+ * - If user doesn't exist (fallback): Creates user and saves questionnaire
+ * 
+ * Sends confirmation email and auto-logs in the user.
  */
 function ajax_complete_retreat_registration() {
-    // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'retreat_nonce')) {
+    // Verify nonce - check both logged-in and logged-out contexts
+    $nonce_valid = false;
+    
+    if (isset($_POST['nonce'])) {
+        // Try to verify nonce (works for both logged-in and logged-out if nonce was generated in the correct context)
+        $nonce_valid = wp_verify_nonce($_POST['nonce'], 'retreat_nonce');
+        
+        // Additional verification: if user is logged in, check if they have a valid booking token
+        if (!$nonce_valid && is_user_logged_in()) {
+            error_log('QUESTIONNAIRE: Nonce verification failed for logged-in user, checking token validity');
+            // If nonce fails but user is logged in and has valid token, allow it
+            // This handles the case where user was auto-logged in after nonce generation
+            $booking_token = sanitize_text_field($_POST['token'] ?? '');
+            if (!empty($booking_token)) {
+                $transient_key = 'retreat_' . $booking_token;
+                $booking_data = get_transient($transient_key);
+                // If transient exists and payment is completed, allow the submission
+                if ($booking_data && $booking_data['payment_status'] === 'completed') {
+                    $nonce_valid = true;
+                    error_log('QUESTIONNAIRE: Allowing submission based on valid booking token');
+                }
+            }
+        }
+    }
+    
+    if (!$nonce_valid) {
+        error_log('QUESTIONNAIRE ERROR: Security verification failed');
+        error_log('User logged in: ' . (is_user_logged_in() ? 'yes' : 'no'));
+        error_log('User ID: ' . get_current_user_id());
         wp_send_json_error(['message' => 'Security verification failed']);
         return;
     }
@@ -585,220 +1011,110 @@ function ajax_complete_retreat_registration() {
     }
     
     // Get questionnaire data
-    $questionnaire = [];
+    $questionnaire_json = '';
     if (isset($_POST['questionnaire_answers'])) {
-        $questionnaire_json = stripslashes($_POST['questionnaire_answers']);
-        $questionnaire = json_decode($questionnaire_json, true);
-        if (!is_array($questionnaire)) {
-            $questionnaire = [];
-        }
-    } elseif (isset($_POST['questionnaire']) && is_array($_POST['questionnaire'])) {
-        foreach ($_POST['questionnaire'] as $key => $value) {
-            $questionnaire[sanitize_key($key)] = sanitize_textarea_field($value);
+        $questionnaire_json = $_POST['questionnaire_answers'];
+    }
+    
+    error_log('=== COMPLETE REGISTRATION (QUESTIONNAIRE SUBMISSION) ===');
+    error_log('Token: ' . $booking_token);
+    error_log('Booking state: ' . ($booking_data['booking_state'] ?? 'unknown'));
+    error_log('User ID in transient: ' . ($booking_data['user_id'] ?? 'NOT SET'));
+    error_log('Has questionnaire data: ' . (!empty($questionnaire_json) ? 'YES' : 'NO'));
+    error_log('Questionnaire JSON length: ' . strlen($questionnaire_json));
+    
+    // ============================================
+    // CHECK IF IPN ALREADY CREATED THE USER
+    // ============================================
+    $user_created_by_ipn = false;
+    $user_id = null;
+    
+    if (!empty($booking_data['user_id'])) {
+        $existing_user = get_user_by('id', $booking_data['user_id']);
+        if ($existing_user) {
+            $user_created_by_ipn = true;
+            $user_id = $booking_data['user_id'];
+            error_log('QUESTIONNAIRE: User already created by IPN (ID: ' . $user_id . '), saving answers only');
         }
     }
     
-    $personal_info = $booking_data['personal_info'];
-    
-    // Prepare user account details
-    $username = sanitize_user($personal_info['email']);
-    $email = $personal_info['email'];
-    $password = $personal_info['password']; // Use password from registration form
-    
-    // Check if user already exists
-    $existing_user_id = email_exists($email);
-    $user_created = false;
-    
-    if ($existing_user_id) {
-        // User already exists - use existing account (seamless for retreat booking)
-        $user_id = $existing_user_id;
-        error_log("RETREAT: Using existing user account (ID: {$user_id}) for email: {$email}");
-    } else {
-        // Create new user account
-        $user_id = wp_create_user($username, $password, $email);
+    // ============================================
+    // FALLBACK: CREATE USER IF IPN DIDN'T
+    // ============================================
+    if (!$user_created_by_ipn) {
+        error_log('QUESTIONNAIRE: IPN did not create user, using fallback path');
         
-        if (is_wp_error($user_id)) {
-            wp_send_json_error(['message' => 'Failed to create user account: ' . $user_id->get_error_message()]);
+        // Use the IPN processor function as fallback
+        $booking_result = process_retreat_booking_from_ipn($booking_data, $booking_token);
+        
+        if (!$booking_result['success']) {
+            wp_send_json_error(['message' => $booking_result['message']]);
             return;
         }
         
-        $user_created = true;
-        error_log("RETREAT: Created new user account (ID: {$user_id}) for email: {$email}");
+        $user_id = $booking_result['user_id'];
+        
+        // Update transient with user_id
+        $booking_data['user_id'] = $user_id;
+        $booking_data['booking_state'] = 'booking_confirmed';
+        $booking_data['booking_created_at'] = current_time('mysql');
     }
     
-    // Update user metadata (for both new and existing users)
-    update_user_meta($user_id, 'full_name', $personal_info['full_name']);
-    update_user_meta($user_id, 'first_name', $personal_info['full_name']);
-    update_user_meta($user_id, 'phone', $personal_info['phone']);
-    update_user_meta($user_id, 'country', $personal_info['country']);
-    update_user_meta($user_id, 'gender', $personal_info['gender']);
-    update_user_meta($user_id, 'birth_date', $personal_info['birth_date']);
-    update_user_meta($user_id, 'retreat_type', $booking_data['retreat_type']);
-    update_user_meta($user_id, 'payment_transaction_id', $booking_data['tran_ref'] ?? '');
-    update_user_meta($user_id, 'payment_amount', $booking_data['amount']);
-    
-    // Save passport file reference
-    if (isset($booking_data['passport_url'])) {
-        update_user_meta($user_id, 'passport_scan', $booking_data['passport_url']);
-    }
-    
-    // Define questionnaire questions (must match retreat_system.php)
-    $questions = [
-        'Do you have any chronic illnesses?',
-        'Have you had any previous surgeries or injuries?',
-        'Have you ever been diagnosed with any psychological disorder?',
-        'Are you currently taking any psychiatric or other medications?',
-        'How are you feeling during this period of your life?',
-        'How do your emotions affect your daily life and relationships?',
-        'Do you have any fears or challenges you would like to discuss in the group?',
-        'How do you think group therapy sessions can support you in achieving what you are aiming for?',
-        'What steps have you taken so far to overcome the challenges you are facing?',
-        'What is your level of comfort with sharing and expressing your emotions within a group?',
-        'Have you practiced yoga before?',
-        'Do you have any food allergies or follow any specific dietary restrictions?'
-    ];
-    
-    // Save questionnaire answers to database with correct schema
-    global $wpdb;
-    $table_name = $wpdb->prefix . 'retreat_questionnaire_answers';
-    
-    error_log('=== SAVING QUESTIONNAIRE ANSWERS ===');
-    error_log('Questionnaire data: ' . print_r($questionnaire, true));
-    error_log('Number of questions: ' . count($questions));
-    
-    // Delete old answers for this user if any
-    $deleted = $wpdb->delete($table_name, ['user_id' => $user_id], ['%d']);
-    if ($deleted) {
-        error_log("Deleted {$deleted} old questionnaire answers for user {$user_id}");
-    }
-    
-    $saved_count = 0;
-    foreach ($questionnaire as $index => $answer) {
-        if (isset($questions[$index]) && !empty(trim($answer))) {
-            $insert_result = $wpdb->insert(
-                $table_name,
-                [
-                    'user_id' => $user_id,
-                    'retreat_type' => $booking_data['retreat_type'],
-                    'retreat_group_id' => $booking_data['group_id'],
-                    'question_number' => intval($index) + 1,
-                    'question_text' => $questions[$index],
-                    'answer' => sanitize_textarea_field($answer)
-                ],
-                ['%d', '%s', '%d', '%d', '%s', '%s']
-            );
+    // ============================================
+    // SAVE QUESTIONNAIRE ANSWERS
+    // ============================================
+    if (!empty($questionnaire_json)) {
+        // Verify questionnaire data is valid JSON and not empty
+        $test_decode = json_decode(stripslashes($questionnaire_json), true);
+        if (is_array($test_decode) && count($test_decode) > 0) {
+            error_log('QUESTIONNAIRE: Valid questionnaire data received, saving...');
+            $save_result = save_retreat_questionnaire_answers($user_id, $questionnaire_json, $booking_data);
             
-            if ($insert_result) {
-                $saved_count++;
+            if ($save_result) {
+                error_log('QUESTIONNAIRE: Answers saved successfully for user ' . $user_id);
+                $booking_data['questionnaire_submitted_at'] = current_time('mysql');
             } else {
-                error_log("Failed to insert answer for question {$index}: " . $wpdb->last_error);
+                error_log('QUESTIONNAIRE WARNING: Failed to save some answers for user ' . $user_id);
+                // Don't fail the whole registration if questionnaire save has issues
             }
-        }
-    }
-    
-    error_log("Saved {$saved_count} questionnaire answers for user {$user_id}");
-    
-    // DEBUG: Log registration attempt
-    error_log('=== COMPLETE REGISTRATION ===');
-    error_log('Token: ' . $booking_token);
-    error_log('User ID created: ' . $user_id);
-    error_log('Booking data group_id: ' . ($booking_data['group_id'] ?? 'NOT SET'));
-    error_log('Booking data retreat_type: ' . ($booking_data['retreat_type'] ?? 'NOT SET'));
-    
-    // Register user for retreat by setting user metadata
-    // NOTE: This system uses user metadata, NOT BuddyPress groups
-    if (empty($booking_data['group_id']) || intval($booking_data['group_id']) === 0) {
-        error_log('RETREAT ERROR: group_id is empty or zero!');
-        error_log('Full booking data: ' . print_r($booking_data, true));
-        wp_send_json_error(['message' => 'Registration error: No retreat group selected. Please contact support.']);
-        return;
-    }
-    
-    // Assign user to retreat group using metadata
-    $update_result = update_user_meta($user_id, 'assigned_retreat_group', $booking_data['group_id']);
-    
-    if ($update_result === false) {
-        error_log('RETREAT ERROR: Failed to assign user to retreat group!');
-        error_log('User ID: ' . $user_id . ', Group ID: ' . $booking_data['group_id']);
-        wp_send_json_error(['message' => 'Failed to complete retreat registration. Please contact support.']);
-        return;
-    }
-    
-    error_log('RETREAT SUCCESS: User ' . $user_id . ' assigned to retreat group ' . $booking_data['group_id']);
-    
-    // Get retreat start date for BP enrollment
-    $start_date = '';
-    if (function_exists('get_field')) {
-        $start_date = get_field('start_date', $booking_data['group_id']);
-    }
-    
-    // Extract first name from full name
-    $first_name = $personal_info['full_name'];
-    if (strpos($first_name, ' ') !== false) {
-        $first_name = explode(' ', $first_name)[0];
-    }
-    
-    // Enroll user in BuddyPress chat group
-    if (function_exists('enroll_retreat_user_to_bp_chat_group')) {
-        error_log('=== ENROLLING USER IN BP CHAT ===');
-        error_log('User ID: ' . $user_id);
-        error_log('Retreat Type: ' . $booking_data['retreat_type']);
-        error_log('First Name: ' . $first_name);
-        error_log('Start Date: ' . $start_date);
-        
-        $bp_enrollment_result = enroll_retreat_user_to_bp_chat_group(
-            $user_id,
-            $booking_data['retreat_type'],
-            $first_name,
-            $start_date
-        );
-        
-        if ($bp_enrollment_result) {
-            error_log("✓ BP chat enrollment successful for user {$user_id}");
         } else {
-            error_log("✗ BP chat enrollment failed for user {$user_id} - Check BP logs");
+            error_log('QUESTIONNAIRE WARNING: Invalid or empty questionnaire data, skipping save');
         }
     } else {
-        error_log('ERROR: enroll_retreat_user_to_bp_chat_group function not available');
+        error_log('QUESTIONNAIRE WARNING: No questionnaire data provided, skipping save');
     }
     
-    // Send confirmation email
-    $to = $email;
-    $subject = 'Retreat Booking Confirmation - Tanafs';
-    $message = "Dear {$personal_info['full_name']},\n\n";
-    $message .= "Thank you for booking your retreat with Tanafs!\n\n";
+    // ============================================
+    // UPDATE BOOKING STATE
+    // ============================================
+    $booking_data['booking_state'] = 'fully_completed';
+    set_transient($transient_key, $booking_data, 86400);
     
-    if ($user_created) {
-        $message .= "Your account has been created successfully.\n\n";
-        $message .= "Login Details:\n";
-        $message .= "Username: {$username}\n";
-        $message .= "Password: [The password you created during registration]\n\n";
-    } else {
-        $message .= "Your retreat booking has been confirmed using your existing account.\n\n";
+    // ============================================
+    // AUTO-LOGIN THE USER
+    // ============================================
+    $user = get_user_by('id', $user_id);
+    if ($user && get_current_user_id() !== $user_id) {
+        error_log("QUESTIONNAIRE: Auto-logging in user {$user_id}");
+        wp_set_current_user($user_id);
+        wp_set_auth_cookie($user_id, true);
+        do_action('wp_login', $user->user_login, $user);
+        error_log("QUESTIONNAIRE: User {$user_id} logged in successfully");
     }
     
-    $message .= "Payment Transaction ID: " . ($booking_data['tran_ref'] ?? 'N/A') . "\n";
-    $message .= "Amount Paid: {$booking_data['amount']} {$booking_data['currency']}\n\n";
-    $message .= "You can login at: " . wp_login_url() . "\n\n";
-    $message .= "We look forward to seeing you!\n\n";
-    $message .= "Best regards,\nTanafs Team";
+    // ============================================
+    // CLEAN UP TRANSIENT (after a delay to allow for any retries)
+    // ============================================
+    // Keep transient for 1 hour after completion for any edge cases
+    // It will auto-expire after 24 hours anyway
     
-    wp_mail($to, $subject, $message);
-    
-    // Auto-login the user (both new and existing users)
-    error_log("RETREAT: Auto-logging in user {$user_id}");
-    wp_set_current_user($user_id);
-    wp_set_auth_cookie($user_id, true);
-    do_action('wp_login', $username, get_user_by('id', $user_id));
-    error_log("RETREAT: User {$user_id} logged in successfully");
-    
-    // Clean up transient
-    delete_transient($transient_key);
+    error_log('=== REGISTRATION FULLY COMPLETED ===');
+    error_log('User ID: ' . $user_id);
     
     wp_send_json_success([
         'message' => 'Registration completed successfully!',
         'user_id' => $user_id,
-        'user_created' => $user_created,
+        'user_created' => !$user_created_by_ipn,
         'logged_in' => true,
         'redirect_url' => home_url('/groups/'),
     ]);
