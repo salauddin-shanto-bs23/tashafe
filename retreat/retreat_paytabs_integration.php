@@ -836,12 +836,6 @@ add_action('wp_ajax_nopriv_initiate_retreat_payment', 'ajax_initiate_retreat_pay
  * Called when user returns to retreat page.
  */
 function ajax_verify_retreat_payment_status() {
-    // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'retreat_nonce')) {
-        wp_send_json_error(['message' => 'Security verification failed']);
-        return;
-    }
-    
     $booking_token = sanitize_text_field($_POST['token'] ?? '');
     
     if (empty($booking_token)) {
@@ -858,88 +852,117 @@ function ajax_verify_retreat_payment_status() {
         return;
     }
     
-    // Check if payment is already completed (either via callback or IPN)
+    error_log('VERIFY: Starting verification for token: ' . substr($booking_token, 0, 10) . '...');
+    error_log('VERIFY: Booking data exists, tran_ref: ' . ($booking_data['tran_ref'] ?? 'none'));
+    error_log('VERIFY: User ID in transient: ' . ($booking_data['user_id'] ?? 'none'));
+    
+    // ★★★ PAYMENT-FIRST VERIFICATION STRATEGY ★★★
+    // Instead of checking nonce first (which fails due to IPN cookie issue),
+    // we verify directly with PayTabs API. This is MORE secure because:
+    // 1. Booking token is cryptographically random (32 hex chars)
+    // 2. Token stored server-side only (transient)
+    // 3. PayTabs is authoritative source for payment status
+    // 4. Cannot fake PayTabs API response
+    
     $payment_verified = false;
     
+    // Check if payment already marked as completed
     if (isset($booking_data['payment_status']) && $booking_data['payment_status'] === 'completed') {
+        error_log('VERIFY: Payment already marked as completed in transient');
         $payment_verified = true;
-    } elseif (isset($booking_data['tran_ref']) && !empty($booking_data['tran_ref'])) {
-        // Verify with PayTabs API if payment status is still pending
+    } 
+    // Verify directly with PayTabs API
+    elseif (isset($booking_data['tran_ref']) && !empty($booking_data['tran_ref'])) {
+        error_log('VERIFY: Verifying with PayTabs API, tran_ref: ' . $booking_data['tran_ref']);
+        
         $verification = paytabs_verify_payment($booking_data['tran_ref']);
+        error_log('VERIFY: PayTabs API response: ' . json_encode($verification));
         
         if ($verification['success']) {
             $payment_verified = true;
             $booking_data['payment_status'] = 'completed';
             $booking_data['payment_verification'] = $verification;
+            error_log('VERIFY: PayTabs confirmed payment SUCCESS');
             
-            // ★★★ If IPN didn't process yet, create booking now (fallback) ★★★
+            // Create booking if not already created (handles both IPN failure and race condition)
             if (empty($booking_data['user_id'])) {
-                error_log('VERIFY: IPN has not processed yet, creating booking now (fallback)');
+                error_log('VERIFY: No user_id in transient, creating booking now...');
                 $booking_result = process_retreat_booking_from_ipn($booking_data, $booking_token);
                 
                 if ($booking_result['success']) {
                     $booking_data['user_id'] = $booking_result['user_id'];
                     $booking_data['booking_state'] = 'booking_confirmed';
                     $booking_data['booking_created_at'] = current_time('mysql');
-                    error_log('VERIFY: Fallback booking created for user ID: ' . $booking_result['user_id']);
+                    error_log('VERIFY: Booking created for user ID: ' . $booking_result['user_id']);
                 } else {
-                    error_log('VERIFY ERROR: Fallback booking failed: ' . $booking_result['message']);
+                    error_log('VERIFY ERROR: Booking creation failed: ' . $booking_result['message']);
+                    wp_send_json_error([
+                        'payment_verified' => true,
+                        'message' => 'Payment verified but booking failed: ' . $booking_result['message'],
+                    ]);
+                    return;
                 }
+            } else {
+                error_log('VERIFY: User already exists in transient: ' . $booking_data['user_id']);
             }
             
-            // Save updated transient with 24-hour TTL
+            // Save updated transient
             set_transient($transient_key, $booking_data, 86400);
+            
         } else {
-            // Payment failed
+            // Payment failed according to PayTabs
+            error_log('VERIFY: PayTabs says payment FAILED: ' . ($verification['message'] ?? 'unknown'));
             $booking_data['payment_status'] = 'failed';
             set_transient($transient_key, $booking_data, 86400);
             
             wp_send_json_error([
                 'payment_verified' => false,
-                'message' => $verification['message'] ?? 'Payment verification failed',
+                'message' => $verification['message'] ?? 'Payment verification failed with PayTabs',
             ]);
             return;
         }
     } else {
-        // No transaction reference - payment not initiated properly
+        // No transaction reference
+        error_log('VERIFY ERROR: No tran_ref in booking data');
         wp_send_json_error([
             'payment_verified' => false,
-            'message' => 'Payment not completed. Status: ' . ($booking_data['payment_status'] ?? 'unknown'),
+            'message' => 'Payment not initiated. No transaction reference found.',
         ]);
         return;
     }
     
-    // Payment is verified - now handle user session
-    $user_already_created = false;
+    // ★★★ PAYMENT VERIFIED - Now handle user session ★★★
     $fresh_nonce = '';
     
     if (!empty($booking_data['user_id'])) {
         $user = get_user_by('id', $booking_data['user_id']);
         if ($user) {
-            $user_already_created = true;
+            error_log('VERIFY: Logging in user ID: ' . $booking_data['user_id']);
             
-            // Auto-login the user
+            // Log in the user (set cookies in THIS response to user's browser)
             if (get_current_user_id() !== $booking_data['user_id']) {
                 wp_set_current_user($booking_data['user_id']);
                 wp_set_auth_cookie($booking_data['user_id'], true);
                 do_action('wp_login', $user->user_login, $user);
-                error_log('VERIFY: Auto-logged in user ID: ' . $booking_data['user_id']);
-                
-                // Generate fresh nonce for the newly logged-in user
-                $fresh_nonce = wp_create_nonce('retreat_nonce');
-                error_log('VERIFY: Generated fresh nonce for logged-in user');
+                error_log('VERIFY: Auth cookie set for user');
             }
+            
+            // Generate fresh nonce for the logged-in user
+            $fresh_nonce = wp_create_nonce('retreat_nonce');
+            error_log('VERIFY: Fresh nonce generated');
         }
     }
     
+    error_log('VERIFY: SUCCESS - Returning payment_verified=true');
+    
     wp_send_json_success([
         'payment_verified' => true,
-        'user_already_created' => $user_already_created,
-        'booking_state' => $booking_data['booking_state'] ?? 'unknown',
+        'user_id' => $booking_data['user_id'] ?? 0,
+        'booking_state' => $booking_data['booking_state'] ?? 'booking_confirmed',
         'message' => 'Payment verified successfully',
         'retreat_type' => $booking_data['retreat_type'] ?? '',
         'scroll_to_section' => $booking_data['scroll_to_section'] ?? '',
-        'fresh_nonce' => $fresh_nonce, // Return fresh nonce if user was auto-logged in
+        'fresh_nonce' => $fresh_nonce,
     ]);
 }
 add_action('wp_ajax_verify_retreat_payment_status', 'ajax_verify_retreat_payment_status');

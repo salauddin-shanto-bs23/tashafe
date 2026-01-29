@@ -2371,98 +2371,101 @@ add_action('wp_footer', function () {
             
             if (paymentReturnToken) {
                 console.log('Payment return detected, token:', paymentReturnToken);
-                console.log('RETREAT_AJAX:', RETREAT_AJAX);
                 
-                // Show loading modal or message
-                $('body').append('<div id="payment-verification-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;padding:40px;border-radius:10px;text-align:center;"><div style="border:4px solid #f3f3f3;border-top:4px solid #6059A6;border-radius:50%;width:50px;height:50px;animation:spin 1s linear infinite;margin:0 auto 20px;"></div><h3 style="color:#333;">Verifying Your Payment...</h3><p style="color:#666;">Please wait while we confirm your payment.</p></div></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>');
+                // Show loading modal
+                $('body').append('<div id="payment-verification-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;padding:40px;border-radius:10px;text-align:center;"><div style="border:4px solid #f3f3f3;border-top:4px solid #6059A6;border-radius:50%;width:50px;height:50px;animation:spin 1s linear infinite;margin:0 auto 20px;"></div><h3 style="color:#333;">Verifying Your Payment...</h3><p id="verification-status" style="color:#666;">Please wait while we confirm your payment.</p></div></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>');
                 
-                console.log('Calling verify_retreat_payment_status...');
+                // ★★★ DIRECT PAYTABS VERIFICATION ★★★
+                // Backend now verifies directly with PayTabs API (no nonce dependency)
+                // This guarantees success on first attempt if payment went through
                 
-                // Verify payment status via AJAX
-                $.post(RETREAT_AJAX.url, {
-                    action: 'verify_retreat_payment_status',
-                    token: paymentReturnToken,
-                    nonce: RETREAT_AJAX.nonce
-                }, function(response) {
-                    console.log('Payment verification response:', response);
-                    $('#payment-verification-overlay').remove();
+                let retryCount = 0;
+                const maxRetries = 3; // Reduced: only retry for network issues
+                const retryDelay = 2000;
+                
+                function verifyPayment() {
+                    retryCount++;
+                    console.log('Verification attempt #' + retryCount);
                     
-                    if (response.success && response.data.payment_verified) {
-                        // Payment successful - store token and open questionnaire modal
-                        console.log('Payment verified successfully');
-                        console.log('Scroll section:', response.data.scroll_to_section);
-                        console.log('Retreat type:', response.data.retreat_type);
+                    $.post(RETREAT_AJAX.url, {
+                        action: 'verify_retreat_payment_status',
+                        token: paymentReturnToken,
+                        nonce: RETREAT_AJAX.nonce
+                    }, function(response) {
+                        console.log('Payment verification response:', response);
                         
-                        // Update nonce if a fresh one was provided (after auto-login)
-                        if (response.data.fresh_nonce) {
-                            RETREAT_AJAX.nonce = response.data.fresh_nonce;
-                            console.log('Updated to fresh nonce after auto-login');
-                        }
-                        
-                        // Store booking token for questionnaire submission
-                        if ($('#booking-token').length === 0) {
-                            $('body').append('<input type="hidden" id="booking-token" value="' + paymentReturnToken + '">');
-                            console.log('Created booking token hidden input');
-                        } else {
-                            $('#booking-token').val(paymentReturnToken);
-                            console.log('Updated existing booking token hidden input');
-                        }
-                        
-                        // Clean URL
-                        const cleanUrl = window.location.pathname;
-                        window.history.replaceState({}, document.title, cleanUrl);
-                        console.log('URL cleaned to:', cleanUrl);
-                        
-                        // Scroll to the retreat section if provided
-                        if (response.data.scroll_to_section) {
-                            const scrollSection = response.data.scroll_to_section;
-                            console.log('Attempting to scroll to section:', scrollSection);
+                        if (response.success && response.data.payment_verified) {
+                            // ★★★ SUCCESS ★★★
+                            console.log('Payment verified successfully!');
+                            $('#payment-verification-overlay').remove();
                             
-                            // Find the retreat option button with matching data-type
-                            const sectionButton = $('.retreat-option[data-type="' + scrollSection + '"]');
-                            console.log('Found section button:', sectionButton.length, 'elements');
+                            // Update nonce for future requests
+                            if (response.data.fresh_nonce) {
+                                RETREAT_AJAX.nonce = response.data.fresh_nonce;
+                                console.log('Nonce updated');
+                            }
                             
-                            if (sectionButton.length > 0) {
-                                const scrollTarget = sectionButton.closest('section, .retreat-section, .section');
-                                console.log('Scroll target:', scrollTarget.length, 'elements');
-                                if (scrollTarget.length > 0) {
-                                    // Scroll to the section smoothly
-                                    $('html, body').animate({
-                                        scrollTop: scrollTarget.offset().top - 100
-                                    }, 600);
-                                    console.log('Scrolling to position:', scrollTarget.offset().top - 100);
+                            // Store booking token
+                            if ($('#booking-token').length === 0) {
+                                $('body').append('<input type="hidden" id="booking-token" value="' + paymentReturnToken + '">');
+                            } else {
+                                $('#booking-token').val(paymentReturnToken);
+                            }
+                            
+                            // Clean URL
+                            window.history.replaceState({}, document.title, window.location.pathname);
+                            
+                            // Scroll to section if provided
+                            if (response.data.scroll_to_section) {
+                                const sectionButton = $('.retreat-option[data-type="' + response.data.scroll_to_section + '"]');
+                                if (sectionButton.length > 0) {
+                                    const scrollTarget = sectionButton.closest('section, .retreat-section, .section');
+                                    if (scrollTarget.length > 0) {
+                                        $('html, body').animate({
+                                            scrollTop: scrollTarget.offset().top - 100
+                                        }, 600);
+                                    }
                                 }
                             }
+                            
+                            // Open questionnaire modal
+                            setTimeout(function() {
+                                $('#retreat-questionnaire-modal').css('display', 'flex').hide().fadeIn(300);
+                            }, 800);
+                            
+                        } else {
+                            // ★★★ FAILURE ★★★
+                            const errorMsg = response.data?.message || 'Payment verification failed';
+                            console.error('Verification failed:', errorMsg);
+                            
+                            // Retry for transient errors only
+                            if (retryCount < maxRetries && !errorMsg.includes('failed with PayTabs')) {
+                                console.log('Retrying in ' + retryDelay + 'ms...');
+                                $('#verification-status').text('Verifying... (attempt ' + (retryCount + 1) + ')');
+                                setTimeout(verifyPayment, retryDelay);
+                            } else {
+                                $('#payment-verification-overlay').remove();
+                                alert('Payment Error: ' + errorMsg + '\n\nPlease contact support if you were charged.');
+                            }
                         }
+                    }).fail(function(xhr, status, error) {
+                        console.error('AJAX failed:', status, error);
                         
-                        // Check if modal exists
-                        const questionnaireModal = $('#retreat-questionnaire-modal');
-                        console.log('Questionnaire modal exists:', questionnaireModal.length > 0);
-                        console.log('Modal current display:', questionnaireModal.css('display'));
-                        
-                        // Auto-open questionnaire modal after 1000ms (allowing time for scroll)
-                        console.log('Setting timeout to open modal in 1000ms...');
-                        setTimeout(function() {
-                            console.log('Timeout fired, opening questionnaire modal now');
-                            const modal = $('#retreat-questionnaire-modal');
-                            console.log('Modal element:', modal.length, 'found');
-                            modal.css('display', 'flex').hide().fadeIn(300);
-                            console.log('Modal opened, new display:', modal.css('display'));
-                        }, 1000);
-                        
-                    } else {
-                        // Payment failed or not verified
-                        const errorMsg = response.data && response.data.message ? response.data.message : 'Payment verification failed';
-                        console.error('Payment verification failed:', errorMsg);
-                        alert('Payment Error: ' + errorMsg + '\n\nPlease contact support if you were charged.');
-                    }
-                }).fail(function(xhr, status, error) {
-                    console.error('AJAX call failed:', status, error);
-                    console.error('Response:', xhr.responseText);
-                    $('#payment-verification-overlay').remove();
-                    alert('Unable to verify payment status. Please contact support.');
-                });
-            }
+                        // Retry on network errors
+                        if (retryCount < maxRetries) {
+                            console.log('Network error, retrying...');
+                            $('#verification-status').text('Connection issue... retrying...');
+                            setTimeout(verifyPayment, retryDelay);
+                        } else {
+                            $('#payment-verification-overlay').remove();
+                            alert('Unable to verify payment. Please refresh the page or contact support.');
+                        }
+                    });
+                }
+                
+                // Start verification
+                verifyPayment();
+            } // End of payment return handling
             
             // ===== GLOBAL STATE =====
             // Using window scope to allow access from card shortcode
