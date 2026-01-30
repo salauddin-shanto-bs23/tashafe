@@ -1,12 +1,17 @@
 <?php
+// Start session early before any output
+if (!session_id() && !headers_sent()) {
+    @session_start();
+}
+
 add_action('init', function () {
-    if (!session_id()) {
-        session_start();
+    if (!session_id() && !headers_sent()) {
+        @session_start();
     }
 }, 1);
 add_action('template_redirect', function () {
-    if (!session_id()) {
-        session_start();
+    if (!session_id() && !headers_sent()) {
+        @session_start();
     }
 
     // Redirect /ar/register-2/ to /ar/register-arabic/
@@ -258,6 +263,7 @@ add_action('um_registration_complete', function ($user_id, $args) {
 
 }, 10, 2);
 
+if (!function_exists('remove_user_from_waiting_list_by_email')) {
 function remove_user_from_waiting_list_by_email($email)
 {
     global $wpdb;
@@ -276,8 +282,9 @@ function remove_user_from_waiting_list_by_email($email)
 
     error_log("All waiting list entries deleted for email: {$email}");
 }
+}
 
-
+if (!function_exists('assign_user_to_active_group')) {
 function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
 {
     try {
@@ -383,8 +390,10 @@ function assign_user_to_active_group($user_id, $args, $direct_group_id = 0)
         error_log('assign_user_to_active_group error: ' . $e->getMessage());
     }
 }
+}
 
 
+if (!function_exists('get_group_info')) {
 function get_group_info($issue, $gender)
 {
     $args = [
@@ -416,6 +425,7 @@ function get_group_info($issue, $gender)
 
     return false; // No group found
 }
+}
 
 // ============================================================================
 // BUDDYPRESS ENROLLMENT FUNCTION
@@ -427,6 +437,7 @@ function get_group_info($issue, $gender)
  * @param int $user_id WordPress user ID
  * @param int $therapy_group_id Therapy group post ID
  */
+if (!function_exists('enroll_user_to_bp_chat_group')) {
 function enroll_user_to_bp_chat_group($user_id, $therapy_group_id) {
 
     // BuddyPress can be loaded later in the request; defer until bp_init if needed.
@@ -522,6 +533,7 @@ function enroll_user_to_bp_chat_group($user_id, $therapy_group_id) {
     error_log("[User Reg BP] ✗✗✗ FAILED to enroll user {$user_id} into BP group {$bp_group_id} (status: {$bp_group_status})");
     return false;
 }
+}
 
 // ============================================================================
 // DEBUGGING SHORTCODES FOR BUDDYPRESS ENROLLMENT
@@ -532,8 +544,7 @@ function enroll_user_to_bp_chat_group($user_id, $therapy_group_id) {
  * Usage: [debug_bp_enrollment user_id="123"]
  * Or just [debug_bp_enrollment] to check current user
  */
-add_shortcode('debug_bp_enrollment', 'debug_bp_enrollment_shortcode');
-
+if (!function_exists('debug_bp_enrollment_shortcode')) {
 function debug_bp_enrollment_shortcode($atts) {
     $atts = shortcode_atts([
         'user_id' => get_current_user_id()
@@ -666,6 +677,8 @@ function debug_bp_enrollment_shortcode($atts) {
     
     return ob_get_clean();
 }
+}
+add_shortcode('debug_bp_enrollment', 'debug_bp_enrollment_shortcode');
 
 // Helper function to count users assigned to a specific group
 if (!function_exists('get_user_count_by_group_id')) {
@@ -735,10 +748,11 @@ add_filter('the_content', function ($content) {
     return do_shortcode($content);
 }, 99);
 
+if (!function_exists('render_therapy_registration_form')) {
 function render_therapy_registration_form()
 {
-    if (!session_id()) {
-        session_start();
+    if (!session_id() && !headers_sent()) {
+        @session_start();
     }
 
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
@@ -763,32 +777,54 @@ function render_therapy_registration_form()
     // If user is already logged in, auto-register them to the selected therapy group
     if (is_user_logged_in()) {
         $group_title = '';
+        $therapy_price = 3500;
         if ($preselected_group_id > 0) {
             $group_post = get_post($preselected_group_id);
             if ($group_post && $group_post->post_type === 'therapy_group') {
                 $group_title = $group_post->post_title;
+                $price = get_field('therapy_price', $preselected_group_id);
+                if ($price > 0) $therapy_price = $price;
             }
         }
+        
+        // Check for payment return
+        $payment_return = isset($_GET['payment_return']) ? sanitize_text_field($_GET['payment_return']) : '';
+        $is_payment_return = !empty($payment_return) && strpos($payment_return, 'therapy_') === 0;
 
         ob_start();
 ?>
         <div class="therapy-reg-container">
             <div class="therapy-reg-message">
-                <p>
-                    <?php
-                    if ($is_rtl) {
-                        echo $group_title
-                            ? 'يتم الآن تسجيلك في مجموعة: ' . esc_html($group_title)
-                            : 'يتم الآن تسجيلك في المجموعة المختارة...';
-                    } else {
-                        echo $group_title
-                            ? 'You are being registered to: ' . esc_html($group_title)
-                            : 'You are being registered to your selected group...';
-                    }
-                    ?>
-                </p>
+                <?php if ($is_payment_return): ?>
+                    <p><?php echo $is_rtl ? 'جاري التحقق من الدفع...' : 'Verifying payment...'; ?></p>
+                <?php else: ?>
+                    <p>
+                        <?php
+                        if ($is_rtl) {
+                            echo $group_title
+                                ? 'التسجيل في مجموعة: ' . esc_html($group_title)
+                                : 'التسجيل في المجموعة المختارة';
+                        } else {
+                            echo $group_title
+                                ? 'Register for: ' . esc_html($group_title)
+                                : 'Register for your selected group';
+                        }
+                        ?>
+                    </p>
+                    <div style="background: #f0f7ff; border: 1px solid #b3d4fc; border-radius: 8px; padding: 15px; margin: 15px 0;">
+                        <p style="margin: 0; font-size: 14px; color: #1e40af;">
+                            <strong><?php echo $is_rtl ? 'رسوم الجلسة:' : 'Session Fee:'; ?></strong>
+                            <span style="font-size: 20px; font-weight: 700; color: #059669;">
+                                <?php echo number_format($therapy_price, 2); ?> <?php echo get_option('paytabs_currency', 'SAR'); ?>
+                            </span>
+                        </p>
+                    </div>
+                <?php endif; ?>
                 <p id="therapy-reg-status" style="margin-bottom: 0; color: #666;"></p>
-                <button id="therapy-reg-retry" class="therapy-reg-btn" style="display:none; margin-top:16px;">
+                <button id="therapy-reg-pay-btn" class="therapy-reg-btn" style="<?php echo $is_payment_return ? 'display:none;' : ''; ?> margin-top:16px; background: #C3DDD2; color: #333; padding: 16px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%;">
+                    <?php echo $is_rtl ? 'متابعة للدفع' : 'Continue to Payment'; ?>
+                </button>
+                <button id="therapy-reg-retry" class="therapy-reg-btn" style="display:none; margin-top:16px; background: #C3DDD2; color: #333; padding: 16px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%;">
                     <?php echo $is_rtl ? 'إعادة المحاولة' : 'Try Again'; ?>
                 </button>
             </div>
@@ -796,15 +832,28 @@ function render_therapy_registration_form()
         <script>
             (function() {
                 const statusEl = document.getElementById('therapy-reg-status');
+                const payBtn = document.getElementById('therapy-reg-pay-btn');
                 const retryBtn = document.getElementById('therapy-reg-retry');
                 const isRtl = <?php echo $is_rtl ? 'true' : 'false'; ?>;
                 const selectedGroupId = <?php echo $preselected_group_id > 0 ? intval($preselected_group_id) : 0; ?>;
+                const isPaymentReturn = <?php echo $is_payment_return ? 'true' : 'false'; ?>;
+                const paymentReturnToken = '<?php echo esc_js($payment_return); ?>';
+                
+                // DEBUG: Log initial state
+                console.log('[Therapy Payment DEBUG] Page loaded');
+                console.log('[Therapy Payment DEBUG] selectedGroupId:', selectedGroupId);
+                console.log('[Therapy Payment DEBUG] isPaymentReturn:', isPaymentReturn);
+                console.log('[Therapy Payment DEBUG] paymentReturnToken:', paymentReturnToken);
+                console.log('[Therapy Payment DEBUG] URL params:', window.location.search);
 
                 const messages = {
-                    registering: isRtl ? 'جاري التسجيل...' : 'Registering...',
+                    processing: isRtl ? 'جاري المعالجة...' : 'Processing...',
+                    redirectingPayment: isRtl ? 'جاري التوجيه إلى بوابة الدفع...' : 'Redirecting to payment...',
+                    verifyingPayment: isRtl ? 'جاري التحقق من الدفع...' : 'Verifying payment...',
                     success: isRtl ? 'تم التسجيل بنجاح! جاري التوجيه...' : 'Registration successful! Redirecting...',
                     missingGroup: isRtl ? 'لم يتم تحديد مجموعة. يرجى اختيار مجموعة علاجية أولاً.' : 'No group selected. Please choose a therapy group first.',
-                    error: isRtl ? 'حدث خطأ. يرجى المحاولة مرة أخرى.' : 'An error occurred. Please try again.'
+                    error: isRtl ? 'حدث خطأ. يرجى المحاولة مرة أخرى.' : 'An error occurred. Please try again.',
+                    continuePayment: isRtl ? 'متابعة للدفع' : 'Continue to Payment'
                 };
 
                 function setStatus(text, isError) {
@@ -812,57 +861,111 @@ function render_therapy_registration_form()
                     statusEl.style.color = isError ? '#dc2626' : '#666';
                 }
 
-                function registerLoggedInUser() {
-                    retryBtn.style.display = 'none';
-
+                function initiatePayment() {
+                    console.log('[Therapy Payment DEBUG] initiatePayment called');
+                    console.log('[Therapy Payment DEBUG] Sending group_id:', selectedGroupId);
+                    
                     if (!selectedGroupId) {
+                        console.error('[Therapy Payment DEBUG] ERROR: No group selected!');
                         setStatus(messages.missingGroup, true);
                         retryBtn.style.display = 'inline-block';
                         return;
                     }
 
-                    setStatus(messages.registering, false);
+                    payBtn.disabled = true;
+                    payBtn.classList.add('loading');
+                    setStatus(messages.processing, false);
 
                     const formData = new FormData();
-                    formData.append('action', 'therapy_logged_in_registration');
+                    formData.append('action', 'initiate_therapy_payment_logged_in');
                     formData.append('nonce', THERAPY_REG_AJAX.nonce);
                     formData.append('selected_group_id', selectedGroupId);
 
                     fetch(THERAPY_REG_AJAX.url, {
-                            method: 'POST',
-                            body: formData,
-                            credentials: 'same-origin'
-                        })
-                        .then(function(response) {
-                            return response.json();
-                        })
-                        .then(function(data) {
-                            if (data.success) {
-                                setStatus(messages.success, false);
-                                setTimeout(function() {
-                                    if (data.data && data.data.redirect_url) {
-                                        window.location.href = data.data.redirect_url;
-                                    } else {
-                                        window.location.reload();
-                                    }
-                                }, 1200);
-                            } else {
-                                setStatus(data.data || messages.error, true);
-                                retryBtn.style.display = 'inline-block';
-                            }
-                        })
-                        .catch(function() {
-                            setStatus(messages.error, true);
-                            retryBtn.style.display = 'inline-block';
-                        });
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'same-origin'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('[Therapy Payment DEBUG] Payment initiation response:', data);
+                        if (data.data?.debug) {
+                            console.log('[Therapy Payment DEBUG] Server debug info:', data.data.debug);
+                        }
+                        if (data.success && data.data.redirect_url) {
+                            setStatus(messages.redirectingPayment, false);
+                            window.location.href = data.data.redirect_url;
+                        } else {
+                            throw new Error(data.data?.message || 'Payment initiation failed');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('[Therapy Payment DEBUG] Payment error:', error);
+                        setStatus(error.message || messages.error, true);
+                        payBtn.disabled = false;
+                        payBtn.classList.remove('loading');
+                        retryBtn.style.display = 'inline-block';
+                    });
                 }
+
+                function verifyPayment(token) {
+                    console.log('[Therapy Payment DEBUG] verifyPayment called with token:', token);
+                    setStatus(messages.verifyingPayment, false);
+                    
+                    const formData = new FormData();
+                    formData.append('action', 'verify_therapy_payment_status');
+                    formData.append('nonce', THERAPY_REG_AJAX.nonce);
+                    formData.append('booking_token', token);
+
+                    fetch(THERAPY_REG_AJAX.url, {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'same-origin'
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('[Therapy Payment DEBUG] Verification response:', data);
+                        if (data.data?.debug) {
+                            console.log('[Therapy Payment DEBUG] Server debug info:', data.data.debug);
+                        }
+                        if (data.success && data.data.status === 'completed') {
+                            setStatus(messages.success, false);
+                            setTimeout(() => {
+                                window.location.href = data.data.redirect_url || (isRtl ? '/ar/thank-you-arabic' : '/thank-you');
+                            }, 1500);
+                        } else {
+                            setStatus(data.data?.message || messages.error, true);
+                            payBtn.style.display = 'inline-block';
+                            payBtn.disabled = false;
+                            retryBtn.style.display = 'inline-block';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('[Therapy Payment DEBUG] Verification error:', error);
+                        setStatus(messages.error, true);
+                        payBtn.style.display = 'inline-block';
+                        retryBtn.style.display = 'inline-block';
+                    });
+                }
+
+                payBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    initiatePayment();
+                });
 
                 retryBtn.addEventListener('click', function(e) {
                     e.preventDefault();
-                    registerLoggedInUser();
+                    if (isPaymentReturn) {
+                        verifyPayment(paymentReturnToken);
+                    } else {
+                        initiatePayment();
+                    }
                 });
 
-                registerLoggedInUser();
+                // Auto-verify if returning from payment
+                if (isPaymentReturn && paymentReturnToken) {
+                    verifyPayment(paymentReturnToken);
+                }
             })();
         </script>
     <?php
@@ -1080,8 +1183,8 @@ function render_therapy_registration_form()
         .therapy-reg-btn {
             width: 100%;
             padding: 16px;
-            background: linear-gradient(135deg, #6059A6, #7a74b8);
-            color: #fff;
+            background: #C3DDD2;
+            color: #333;
             border: none;
             border-radius: 8px;
             font-size: 16px;
@@ -1095,9 +1198,9 @@ function render_therapy_registration_form()
         }
 
         .therapy-reg-btn:hover {
-            background: linear-gradient(135deg, #524b8f, #6059A6);
+            background: #a8cfc0;
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(96, 89, 166, 0.3);
+            box-shadow: 0 4px 12px rgba(195, 221, 210, 0.5);
         }
 
         .therapy-reg-btn:disabled {
@@ -1290,8 +1393,28 @@ function render_therapy_registration_form()
             <input type="hidden" name="nonce" value="<?php echo wp_create_nonce('therapy_registration_nonce'); ?>">
             <input type="hidden" name="selected_group_id" id="therapy_selected_group_id" value="<?php echo $preselected_group_id > 0 ? esc_attr($preselected_group_id) : ''; ?>">
 
+            <!-- Payment Info Display -->
+            <div id="therapy-payment-info" style="background: #f0f7ff; border: 1px solid #b3d4fc; border-radius: 8px; padding: 15px; margin-bottom: 15px; display: <?php echo $preselected_group_id > 0 ? 'block' : 'none'; ?>;">
+                <p style="margin: 0; font-size: 14px; color: #1e40af;">
+                    <strong><?php echo $is_rtl ? 'رسوم الجلسة:' : 'Session Fee:'; ?></strong>
+                    <span id="therapy-price-display" style="font-size: 18px; font-weight: 700; color: #059669;">
+                        <?php 
+                            $display_price = 3500;
+                            if ($preselected_group_id > 0) {
+                                $group_price = get_field('therapy_price', $preselected_group_id);
+                                if ($group_price > 0) $display_price = $group_price;
+                            }
+                            echo number_format($display_price, 2);
+                        ?> <?php echo get_option('paytabs_currency', 'SAR'); ?>
+                    </span>
+                </p>
+                <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
+                    <?php echo $is_rtl ? 'ستتم إعادة توجيهك إلى بوابة الدفع الآمنة' : 'You will be redirected to secure payment gateway'; ?>
+                </p>
+            </div>
+
             <button type="submit" class="therapy-reg-btn" id="therapy-reg-submit">
-                <?php echo $labels['register']; ?>
+                <?php echo $is_rtl ? 'متابعة للدفع' : 'Continue to Payment'; ?>
             </button>
         </form>
     </div>
@@ -1302,16 +1425,74 @@ function render_therapy_registration_form()
             const submitBtn = document.getElementById('therapy-reg-submit');
             const alertBox = document.getElementById('therapy-reg-alert');
             const isRtl = <?php echo $is_rtl ? 'true' : 'false'; ?>;
+            const preselectedGroupId = <?php echo $preselected_group_id > 0 ? intval($preselected_group_id) : 0; ?>;
 
             const messages = {
                 required: isRtl ? 'هذا الحقل مطلوب' : 'This field is required',
                 email: isRtl ? 'يرجى إدخال بريد إلكتروني صحيح' : 'Please enter a valid email',
                 passwordLength: isRtl ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must be at least 8 characters',
                 passwordMatch: isRtl ? 'كلمات المرور غير متطابقة' : 'Passwords do not match',
-                registering: isRtl ? 'جاري التسجيل...' : 'Registering...',
-                register: isRtl ? 'تسجيل' : 'Register',
-                successRedirect: isRtl ? 'تم التسجيل بنجاح! جاري التوجيه...' : 'Registration successful! Redirecting...'
+                processing: isRtl ? 'جاري المعالجة...' : 'Processing...',
+                redirectingPayment: isRtl ? 'جاري التوجيه إلى بوابة الدفع...' : 'Redirecting to payment gateway...',
+                continuePayment: isRtl ? 'متابعة للدفع' : 'Continue to Payment',
+                verifyingPayment: isRtl ? 'جاري التحقق من الدفع...' : 'Verifying payment...',
+                paymentSuccess: isRtl ? 'تم الدفع بنجاح! جاري إنشاء الحساب...' : 'Payment successful! Creating account...',
+                successRedirect: isRtl ? 'تم التسجيل بنجاح! جاري التوجيه...' : 'Registration successful! Redirecting...',
+                noGroup: isRtl ? 'يرجى اختيار مجموعة علاجية أولاً' : 'Please select a therapy group first'
             };
+            
+            // Check for payment return
+            const urlParams = new URLSearchParams(window.location.search);
+            const paymentReturn = urlParams.get('payment_return');
+            
+            if (paymentReturn && paymentReturn.startsWith('therapy_')) {
+                // User returned from payment - verify status
+                handlePaymentReturn(paymentReturn);
+            }
+            
+            function handlePaymentReturn(bookingToken) {
+                showAlert(messages.verifyingPayment, 'success');
+                submitBtn.disabled = true;
+                submitBtn.classList.add('loading');
+                submitBtn.textContent = messages.verifyingPayment;
+                
+                const formData = new FormData();
+                formData.append('action', 'verify_therapy_payment_status');
+                formData.append('nonce', form.querySelector('[name="nonce"]').value);
+                formData.append('booking_token', bookingToken);
+                
+                fetch(THERAPY_REG_AJAX.url, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.data.status === 'completed') {
+                        showAlert(messages.successRedirect, 'success');
+                        setTimeout(() => {
+                            window.location.href = data.data.redirect_url || window.location.origin + '/thank-you';
+                        }, 1500);
+                    } else if (data.success && (data.data.status === 'pending_payment' || data.data.payment_status === 'pending')) {
+                        showAlert(isRtl ? 'الدفع قيد الانتظار. يرجى إكمال عملية الدفع.' : 'Payment is pending. Please complete the payment process.', 'error');
+                        submitBtn.disabled = false;
+                        submitBtn.classList.remove('loading');
+                        submitBtn.textContent = messages.continuePayment;
+                    } else {
+                        showAlert(data.data?.message || (isRtl ? 'فشل التحقق من الدفع' : 'Payment verification failed'), 'error');
+                        submitBtn.disabled = false;
+                        submitBtn.classList.remove('loading');
+                        submitBtn.textContent = messages.continuePayment;
+                    }
+                })
+                .catch(error => {
+                    console.error('Payment verification error:', error);
+                    showAlert(isRtl ? 'خطأ في التحقق من الدفع' : 'Error verifying payment', 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('loading');
+                    submitBtn.textContent = messages.continuePayment;
+                });
+            }
 
             // Toggle password visibility
             document.querySelectorAll('.therapy-reg-toggle-password').forEach(function(toggle) {
@@ -1445,14 +1626,23 @@ function render_therapy_registration_form()
                 if (!validateForm()) {
                     return;
                 }
+                
+                // Validate group selection
+                const selectedGroupId = form.querySelector('[name="selected_group_id"]').value;
+                if (!selectedGroupId || selectedGroupId === '0') {
+                    showAlert(messages.noGroup, 'error');
+                    return;
+                }
 
                 submitBtn.disabled = true;
                 submitBtn.classList.add('loading');
-                submitBtn.textContent = messages.registering;
+                submitBtn.textContent = messages.processing;
                 hideAlert();
 
                 const formData = new FormData(form);
+                formData.set('action', 'save_therapy_booking_data'); // First step: save booking data
 
+                // STEP 1: Save booking data to transient
                 fetch(THERAPY_REG_AJAX.url, {
                         method: 'POST',
                         body: formData,
@@ -1463,35 +1653,52 @@ function render_therapy_registration_form()
                     })
                     .then(function(data) {
                         if (data.success) {
-                            showAlert(messages.successRedirect, 'success');
-
-                            // Redirect after short delay
-                            setTimeout(function() {
-                                if (data.data && data.data.redirect_url) {
-                                    window.location.href = data.data.redirect_url;
-                                } else {
-                                    window.location.reload();
-                                }
-                            }, 1500);
+                            // Booking data saved, now initiate payment
+                            submitBtn.textContent = messages.redirectingPayment;
+                            
+                            const bookingToken = data.data.booking_token;
+                            
+                            // STEP 2: Initiate PayTabs payment
+                            const paymentData = new FormData();
+                            paymentData.append('action', 'initiate_therapy_payment');
+                            paymentData.append('nonce', form.querySelector('[name="nonce"]').value);
+                            paymentData.append('booking_token', bookingToken);
+                            
+                            return fetch(THERAPY_REG_AJAX.url, {
+                                method: 'POST',
+                                body: paymentData,
+                                credentials: 'same-origin'
+                            }).then(res => res.json());
                         } else {
-                            showAlert(data.data || (isRtl ? 'حدث خطأ. يرجى المحاولة مرة أخرى.' : 'An error occurred. Please try again.'), 'error');
-                            submitBtn.disabled = false;
-                            submitBtn.classList.remove('loading');
-                            submitBtn.textContent = messages.register;
+                            // Extract error message properly (handle both string and object)
+                            const errorMsg = (typeof data.data === 'object' && data.data.message) 
+                                ? data.data.message 
+                                : (typeof data.data === 'string' ? data.data : 'Failed to save booking data');
+                            throw new Error(errorMsg);
+                        }
+                    })
+                    .then(function(paymentResponse) {
+                        if (paymentResponse.success && paymentResponse.data.redirect_url) {
+                            // Redirect to PayTabs payment page
+                            showAlert(messages.redirectingPayment, 'success');
+                            window.location.href = paymentResponse.data.redirect_url;
+                        } else {
+                            throw new Error(paymentResponse.data?.message || 'Failed to initiate payment');
                         }
                     })
                     .catch(function(error) {
-                        console.error('Registration error:', error);
-                        showAlert(isRtl ? 'حدث خطأ في الاتصال. يرجى المحاولة مرة أخرى.' : 'Connection error. Please try again.', 'error');
+                        console.error('Payment flow error:', error);
+                        showAlert(error.message || (isRtl ? 'حدث خطأ. يرجى المحاولة مرة أخرى.' : 'An error occurred. Please try again.'), 'error');
                         submitBtn.disabled = false;
                         submitBtn.classList.remove('loading');
-                        submitBtn.textContent = messages.register;
+                        submitBtn.textContent = messages.continuePayment;
                     });
             });
         })();
     </script>
 <?php
     return ob_get_clean();
+}
 }
 
 /**
@@ -1501,6 +1708,7 @@ add_action('wp_ajax_therapy_custom_registration', 'handle_therapy_custom_registr
 add_action('wp_ajax_nopriv_therapy_custom_registration', 'handle_therapy_custom_registration');
 add_action('wp_ajax_therapy_logged_in_registration', 'handle_therapy_logged_in_registration');
 
+if (!function_exists('handle_therapy_custom_registration')) {
 function handle_therapy_custom_registration()
 {
     // Verify nonce
@@ -1508,8 +1716,8 @@ function handle_therapy_custom_registration()
         wp_send_json_error(__('Security check failed. Please refresh the page and try again.', 'therapy'));
     }
 
-    if (!session_id()) {
-        session_start();
+    if (!session_id() && !headers_sent()) {
+        @session_start();
     }
 
     $posted_group_id = isset($_POST['selected_group_id']) ? intval($_POST['selected_group_id']) : 0;
@@ -1678,10 +1886,12 @@ function handle_therapy_custom_registration()
         'redirect_url' => $redirect_url,
     ]);
 }
+}
 
 /**
  * AJAX Handler for Logged-in Therapy Registration
  */
+if (!function_exists('handle_therapy_logged_in_registration')) {
 function handle_therapy_logged_in_registration()
 {
     // Verify nonce
@@ -1689,8 +1899,8 @@ function handle_therapy_logged_in_registration()
         wp_send_json_error(__('Security check failed. Please refresh the page and try again.', 'therapy'));
     }
 
-    if (!session_id()) {
-        session_start();
+    if (!session_id() && !headers_sent()) {
+        @session_start();
     }
 
     if (!is_user_logged_in()) {
@@ -1789,10 +1999,12 @@ function handle_therapy_logged_in_registration()
         'redirect_url' => $redirect_url,
     ]);
 }
+}
 
 /**
  * Send registration confirmation email
  */
+if (!function_exists('send_therapy_registration_email')) {
 function send_therapy_registration_email($email, $first_name)
 {
     $subject = 'Registration Confirmed – Tashafe Therapy Groups';
@@ -1869,4 +2081,5 @@ function send_therapy_registration_email($email, $first_name)
     ];
 
     wp_mail($email, $subject, $message, $headers);
+}
 }
