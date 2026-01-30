@@ -6,6 +6,7 @@ add_filter('wp_mail_content_type', function () {
 
 // AJAX - Edit Therapy Group
 add_action('wp_ajax_edit_therapy_group', 'handle_edit_therapy_group');
+if (!function_exists('handle_edit_therapy_group')) {
 function handle_edit_therapy_group()
 {
   if (!current_user_can('manage_options')) {
@@ -16,6 +17,7 @@ function handle_edit_therapy_group()
   $start_date = sanitize_text_field($_POST['start_date'] ?? '');
   $end_date = sanitize_text_field($_POST['end_date'] ?? '');
   $max_members = intval($_POST['max_members'] ?? 0);
+  $therapy_price = floatval($_POST['therapy_price'] ?? 2500);
   $session_start_date = sanitize_text_field($_POST['session_start_date'] ?? '');
   $session_expiry_date = sanitize_text_field($_POST['session_expiry_date'] ?? '');
 
@@ -37,6 +39,7 @@ function handle_edit_therapy_group()
   update_field('start_date', $start_date, $group_id);
   update_field('end_date', $end_date, $group_id);
   update_field('max_members', $max_members, $group_id);
+  update_field('therapy_price', $therapy_price, $group_id);
   update_field('session_start_date', $session_start_date, $group_id);
   update_field('session_expiry_date', $session_expiry_date, $group_id);
 
@@ -65,8 +68,10 @@ function handle_edit_therapy_group()
 
   wp_send_json_success('Group updated successfully!');
 }
+}
 
 add_action('wp_ajax_create_sub_group', 'handle_create_sub_group');
+if (!function_exists('handle_create_sub_group')) {
 function handle_create_sub_group()
 {
   // Sanitize and fetch POST data
@@ -75,6 +80,7 @@ function handle_create_sub_group()
   $start_date   = sanitize_text_field($_POST['start_date']);
   $end_date     = sanitize_text_field($_POST['end_date']);
   $max_members  = intval($_POST['max_members']);
+  $therapy_price = floatval($_POST['therapy_price'] ?? 2500);
   $session_start_date  = sanitize_text_field($_POST['session_start_date']);
   $session_expiry_date = sanitize_text_field($_POST['session_expiry_date']);
 
@@ -123,6 +129,7 @@ function handle_create_sub_group()
   update_field('start_date', $start_date, $post_id);
   update_field('end_date', $end_date, $post_id);
   update_field('max_members', $max_members, $post_id);
+  update_field('therapy_price', $therapy_price, $post_id);
   update_field('session_start_date', $session_start_date, $post_id);
   update_field('session_expiry_date', $session_expiry_date, $post_id);
 
@@ -156,7 +163,9 @@ function handle_create_sub_group()
 
   wp_send_json_success('Group created successfully!');
 }
+}
 
+if (!function_exists('notify_waiting_list_users')) {
 function notify_waiting_list_users($issue, $gender, $session_start_date, $session_expiry_date)
 {
   global $wpdb;
@@ -266,10 +275,12 @@ function notify_waiting_list_users($issue, $gender, $session_start_date, $sessio
     wp_mail($user->email, $subject, $message);
   }
 }
+}
 
 // 1. Add menu item in admin dashboard
 add_action('admin_menu', 'therapy_group_dashboard_admin_menu');
 
+if (!function_exists('therapy_group_dashboard_admin_menu')) {
 function therapy_group_dashboard_admin_menu()
 {
   add_menu_page(
@@ -282,7 +293,9 @@ function therapy_group_dashboard_admin_menu()
     6
   );
 }
+}
 
+if (!function_exists('register_therapy_group_cpt')) {
 function register_therapy_group_cpt()
 {
   register_post_type('therapy_group', [
@@ -298,10 +311,12 @@ function register_therapy_group_cpt()
     'supports' => ['title'],
   ]);
 }
+}
 add_action('init', 'register_therapy_group_cpt');
 
 // AJAX - Delete Therapy Group
 add_action('wp_ajax_delete_therapy_group', 'ajax_delete_therapy_group');
+if (!function_exists('ajax_delete_therapy_group')) {
 function ajax_delete_therapy_group()
 {
   if (!current_user_can('manage_options')) {
@@ -356,8 +371,10 @@ function ajax_delete_therapy_group()
     wp_send_json_error('Failed to delete therapy group');
   }
 }
+}
 
 // Helper function to get group availability status
+if (!function_exists('get_group_availability_status')) {
 function get_group_availability_status($group_id)
 {
   $max_members = get_field('max_members', $group_id) ?: 0;
@@ -398,6 +415,7 @@ function get_group_availability_status($group_id)
     'status_class' => $is_full ? 'status-full' : 'status-open',
   ];
 }
+}
 
 /**
  * Create BuddyPress group for therapy group
@@ -409,6 +427,7 @@ function get_group_availability_status($group_id)
  * @param array|null $therapy_form_data Therapy session form payload (preferred source of truth)
  * @return int|false BP group ID on success, false on failure
  */
+if (!function_exists('create_buddypress_group_for_therapy')) {
 function create_buddypress_group_for_therapy($therapy_group_id, $post, $session_expiry_date_override = null, $therapy_form_data = null) {
     
     // Only proceed if BuddyPress is active
@@ -708,8 +727,10 @@ if (!function_exists('tbc_get_therapy_group_info')) {
   return $info;
     }
 }
+}
 
 // UPDATED render_subgroups_by_issue_and_gender function
+if (!function_exists('render_subgroups_by_issue_and_gender')) {
 function render_subgroups_by_issue_and_gender($issue, $gender)
 {
   $args = [
@@ -752,6 +773,7 @@ function render_subgroups_by_issue_and_gender($issue, $gender)
     $end_date = get_field('end_date', $post_id) ?: 'N/A';
     $session_start_date = get_field('session_start_date', $post_id) ?: 'N/A';
     $session_expiry_date = get_field('session_expiry_date', $post_id) ?: 'N/A';
+    $therapy_price = get_field('therapy_price', $post_id) ?: 2500;
 
     // Get availability status
     $availability = get_group_availability_status($post_id);
@@ -797,6 +819,7 @@ function render_subgroups_by_issue_and_gender($issue, $gender)
             data-issue="{$issue}"
             data-gender="{$gender}"
             data-max-members="{$max_members}"
+            data-therapy-price="{$therapy_price}"
             data-start-date="{$start_date_input}"
             data-end-date="{$end_date_input}"
             data-session-start="{$session_start_input}"
@@ -874,8 +897,10 @@ HTML;
 
   echo '</div>';
 }
+}
 
 // UPDATED render_therapy_group_dashboard
+if (!function_exists('render_therapy_group_dashboard')) {
 function render_therapy_group_dashboard()
 {
 ?>
@@ -1149,6 +1174,12 @@ function render_therapy_group_dashboard()
               <input type="number" class="form-control" id="max_members" name="max_members" value="12" required>
             </div>
 
+            <div class="mb-3">
+              <label for="therapy_price" class="form-label">Session Price (SAR)</label>
+              <input type="number" step="0.01" class="form-control" id="therapy_price" name="therapy_price" value="2500" required>
+              <small class="text-muted">Price per participant for this therapy group</small>
+            </div>
+
           </div>
           <div class="modal-footer">
             <button type="submit" class="btn btn-create">Create Group</button>
@@ -1198,6 +1229,12 @@ function render_therapy_group_dashboard()
             <div class="mb-3">
               <label for="edit_max_members" class="form-label">Max Participants</label>
               <input type="number" class="form-control" id="edit_max_members" name="max_members" required>
+            </div>
+
+            <div class="mb-3">
+              <label for="edit_therapy_price" class="form-label">Session Price (SAR)</label>
+              <input type="number" step="0.01" class="form-control" id="edit_therapy_price" name="therapy_price" required>
+              <small class="text-muted">Price per participant for this therapy group</small>
             </div>
 
           </div>
@@ -1298,6 +1335,7 @@ function render_therapy_group_dashboard()
         document.getElementById('edit_issue_type').value = this.getAttribute('data-issue');
         document.getElementById('edit_gender').value = this.getAttribute('data-gender');
         document.getElementById('edit_max_members').value = this.getAttribute('data-max-members');
+        document.getElementById('edit_therapy_price').value = this.getAttribute('data-therapy-price') || 2500;
         document.getElementById('edit_start_date').value = this.getAttribute('data-start-date');
         document.getElementById('edit_end_date').value = this.getAttribute('data-end-date');
         document.getElementById('edit_session_start_date').value = this.getAttribute('data-session-start');
@@ -1345,6 +1383,7 @@ function render_therapy_group_dashboard()
 
 <?php
 }
+}
 
 
 
@@ -1354,6 +1393,7 @@ function render_therapy_group_dashboard()
 
 // DATABASE TABLE FOR SCHEDULES
 add_action('init', 'create_therapy_group_schedules_table');
+if (!function_exists('create_therapy_group_schedules_table')) {
 function create_therapy_group_schedules_table()
 {
   global $wpdb;
@@ -1386,9 +1426,11 @@ function create_therapy_group_schedules_table()
   require_once ABSPATH . 'wp-admin/includes/upgrade.php';
   dbDelta($sql);
 }
+}
 
 // DATABASE TABLE FOR SCHEDULED MEETINGS
 add_action('init', 'create_therapy_scheduled_meetings_table');
+if (!function_exists('create_therapy_scheduled_meetings_table')) {
 function create_therapy_scheduled_meetings_table()
 {
   global $wpdb;
@@ -1421,9 +1463,11 @@ function create_therapy_scheduled_meetings_table()
   require_once ABSPATH . 'wp-admin/includes/upgrade.php';
   dbDelta($sql);
 }
+}
 
 // Ensure Zoom URL columns can store long payloads even if tables were created before the TEXT change
 add_action('init', 'tashafe_upgrade_zoom_url_columns');
+if (!function_exists('tashafe_upgrade_zoom_url_columns')) {
 function tashafe_upgrade_zoom_url_columns()
 {
   global $wpdb;
@@ -1453,6 +1497,7 @@ function tashafe_upgrade_zoom_url_columns()
     $wpdb->query("ALTER TABLE {$meetings_table} ADD COLUMN notification_count INT UNSIGNED DEFAULT 0 AFTER notification_sent");
   }
 }
+}
 
 // ZOOM API CONFIGURATION
 if (!defined('TASHAFE_ZOOM_ACCOUNT_ID')) {
@@ -1462,6 +1507,7 @@ if (!defined('TASHAFE_ZOOM_ACCOUNT_ID')) {
 }
 
 // ZOOM API - GET ACCESS TOKEN
+if (!function_exists('tashafe_get_zoom_access_token')) {
 function tashafe_get_zoom_access_token()
 {
   $transient_key = 'tashafe_zoom_access_token';
@@ -1501,8 +1547,10 @@ function tashafe_get_zoom_access_token()
   error_log('Zoom OAuth Error: ' . print_r($body, true));
   return false;
 }
+}
 
 // ZOOM API - CREATE MEETING
+if (!function_exists('tashafe_create_zoom_meeting')) {
 function tashafe_create_zoom_meeting($topic, $start_time, $duration = 90, $timezone = 'Asia/Riyadh')
 {
   $access_token = tashafe_get_zoom_access_token();
@@ -1553,6 +1601,7 @@ function tashafe_create_zoom_meeting($topic, $start_time, $duration = 90, $timez
 
   error_log('Zoom Create Meeting Error: ' . print_r($body, true));
   return ['error' => isset($body['message']) ? $body['message'] : 'Failed to create Zoom meeting'];
+}
 }
 
 // ADMIN MENU
