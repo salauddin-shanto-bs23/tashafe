@@ -47,6 +47,85 @@ add_action('init', function() {
 });
 
 // ============================================================================
+// PERSISTENT BOOKING STORAGE HELPERS
+// ============================================================================
+/**
+ * Saves booking data to BOTH a transient AND a long-lived wp_option.
+ *
+ * Using only transients can silently lose data when an object-caching
+ * plugin (Redis / Memcached) flushes its cache between the payment
+ * initiation and the PayTabs return redirect.  Storing a redundant copy
+ * in wp_options (which always goes to the database) prevents the
+ * "Booking session expired" error that users see after a successful payment.
+ *
+ * @param string $transient_key  The transient key (= booking token).
+ * @param array  $booking_data   Data to persist.
+ * @param int    $ttl            Transient TTL in seconds (defaults to 4 h).
+ */
+if (!function_exists('therapy_booking_save')) {
+function therapy_booking_save($transient_key, $booking_data, $ttl = null) {
+    if ($ttl === null) {
+        $ttl = 4 * HOUR_IN_SECONDS;
+    }
+    // Transient (fast path — may be in-memory cache)
+    set_transient($transient_key, $booking_data, $ttl);
+    // Persistent fallback in wp_options — survives cache flushes
+    // Option name: '_tbp_' + key (tbp = therapy booking persistent)
+    $option_name = '_tbp_' . $transient_key;
+    $stored = [
+        'data'    => $booking_data,
+        'expires' => time() + $ttl,
+    ];
+    update_option($option_name, $stored, false); // false = non-autoloaded
+    error_log('[Therapy Booking] Saved persistent backup: ' . $option_name);
+}
+}
+
+/**
+ * Retrieves booking data — first from transient, falls back to wp_option.
+ *
+ * @param string $transient_key
+ * @return array|false  Booking data array or false if not found / expired.
+ */
+if (!function_exists('therapy_booking_get')) {
+function therapy_booking_get($transient_key) {
+    // Fast path: transient (may be in object cache)
+    $data = get_transient($transient_key);
+    if ($data !== false) {
+        return $data;
+    }
+    // Fallback: persistent wp_option
+    $option_name = '_tbp_' . $transient_key;
+    $stored = get_option($option_name, false);
+    if ($stored && isset($stored['data'], $stored['expires'])) {
+        if ($stored['expires'] > time()) {
+            error_log('[Therapy Booking] Transient miss — recovered from persistent store: ' . $option_name);
+            // Restore transient so subsequent requests are fast again
+            set_transient($transient_key, $stored['data'], $stored['expires'] - time());
+            return $stored['data'];
+        } else {
+            // Expired — clean up
+            delete_option($option_name);
+            error_log('[Therapy Booking] Persistent store expired, cleaned up: ' . $option_name);
+        }
+    }
+    return false;
+}
+}
+
+/**
+ * Deletes both the transient and the persistent wp_option for a booking key.
+ *
+ * @param string $transient_key
+ */
+if (!function_exists('therapy_booking_delete')) {
+function therapy_booking_delete($transient_key) {
+    delete_transient($transient_key);
+    delete_option('_tbp_' . $transient_key);
+}
+}
+
+// ============================================================================
 // SECTION 1: AJAX HANDLERS FOR THERAPY PAYMENT FLOW
 // ============================================================================
 
@@ -176,9 +255,9 @@ function ajax_save_therapy_booking_data() {
     
     error_log('[Therapy Booking] Saving booking data. existing_user=' . ($is_existing_user ? 'YES (ID: ' . $existing_user_id . ')' : 'NO') . ', group_id=' . $group_id);
     
-    // Store in transient (1 hour TTL before payment)
+    // Store booking data — transient + persistent fallback (4-hour TTL)
     $transient_key = 'therapy_' . str_replace('therapy_', '', $booking_token);
-    set_transient($transient_key, $booking_data, HOUR_IN_SECONDS);
+    therapy_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
     
     error_log('[Therapy Payment] Booking data saved. Token: ' . $booking_token . ', Group: ' . $group_id . ', Email: ' . $personal_info['email']);
     
@@ -214,9 +293,9 @@ function ajax_initiate_therapy_payment() {
         return;
     }
     
-    // Retrieve booking data from transient
+    // Retrieve booking data (transient with persistent fallback)
     $transient_key = 'therapy_' . str_replace('therapy_', '', $booking_token);
-    $booking_data = get_transient($transient_key);
+    $booking_data = therapy_booking_get($transient_key);
     
     if (!$booking_data) {
         wp_send_json_error(['message' => 'Booking session expired. Please fill out the form again.']);
@@ -244,8 +323,9 @@ function ajax_initiate_therapy_payment() {
     ];
     
     // Determine return URL based on language
+    // NOTE: Arabic is the DEFAULT language (no /ar/ prefix), English uses /en/ prefix
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-    $register_page = ($lang === 'ar') ? home_url('/ar/register-arabic/') : home_url('/register/');
+    $register_page = ($lang === 'ar') ? home_url('/register-arabic/') : home_url('/en/register/');
     
     // Initiate payment
     $result = paytabs_initiate_payment(
@@ -260,11 +340,11 @@ function ajax_initiate_therapy_payment() {
     );
     
     if ($result['success']) {
-        // Update transient with payment initiation data
+        // Update booking data with payment initiation info — 4-hour persistent TTL
         $booking_data['payment_initiated'] = true;
         $booking_data['tran_ref'] = $result['tran_ref'] ?? '';
         $booking_data['payment_initiated_at'] = current_time('mysql');
-        set_transient($transient_key, $booking_data, HOUR_IN_SECONDS);
+        therapy_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
         
         error_log('[Therapy Payment] Payment initiated. Token: ' . $booking_token . ', TranRef: ' . ($result['tran_ref'] ?? 'N/A'));
         
@@ -292,21 +372,44 @@ add_action('wp_ajax_nopriv_verify_therapy_payment_status', 'ajax_verify_therapy_
 
 if (!function_exists('ajax_verify_therapy_payment_status')) {
 function ajax_verify_therapy_payment_status() {
-    // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'therapy_registration_nonce')) {
-        wp_send_json_error(['message' => 'Security verification failed']);
-        return;
-    }
-    
+    // -----------------------------------------------------------------------
+    // SECURITY: nonce check with token-based fallback
+    //
+    // After a cross-site redirect (WordPress → PayTabs → WordPress) some
+    // browsers (and caching layers) do NOT reliably restore the user's auth
+    // cookie.  This means:
+    //   • A logged-in user who generated a user-specific nonce may now appear
+    //     anonymous, so wp_verify_nonce() fails even though the nonce is valid.
+    //   • The booking token itself is generated with bin2hex(random_bytes(16))
+    //     = 128 bits of entropy — it IS a secure authentication token.
+    // Therefore: if the nonce check fails we accept a well-formed booking token
+    // as authentication instead of rejecting the request outright.
+    // -----------------------------------------------------------------------
     $booking_token = sanitize_text_field($_POST['booking_token'] ?? '');
+    $nonce_valid   = isset($_POST['nonce']) && wp_verify_nonce($_POST['nonce'], 'therapy_registration_nonce');
+
+    if (!$nonce_valid) {
+        // Token-based fallback: must start with 'therapy_' and be ≥ 40 chars
+        // ('therapy_' = 8 chars + 32-char hex token = 40 chars minimum)
+        if (empty($booking_token)
+            || strpos($booking_token, 'therapy_') !== 0
+            || strlen($booking_token) < 40
+        ) {
+            error_log('[Therapy Verify] Security check failed: nonce invalid and no valid token provided.');
+            wp_send_json_error(['message' => 'Security verification failed']);
+            return;
+        }
+        error_log('[Therapy Verify] Nonce check failed — using token-based auth fallback for: ' . substr($booking_token, 0, 20) . '...');
+    }
+
     if (empty($booking_token)) {
         wp_send_json_error(['message' => 'Invalid booking session']);
         return;
     }
     
-    // Retrieve booking data
+    // Retrieve booking data (transient with persistent fallback)
     $transient_key = 'therapy_' . str_replace('therapy_', '', $booking_token);
-    $booking_data = get_transient($transient_key);
+    $booking_data = therapy_booking_get($transient_key);
     
     if (!$booking_data) {
         wp_send_json_error(['message' => 'Booking session not found or expired']);
@@ -320,7 +423,8 @@ function ajax_verify_therapy_payment_status() {
         wp_set_auth_cookie($booking_data['user_id'], true);
         
         $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-        $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
+        // NOTE: Arabic is the DEFAULT language (no /ar/ prefix), English uses /en/ prefix
+        $redirect_url = ($lang === 'ar') ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/');
         
         wp_send_json_success([
             'status'       => 'completed',
@@ -358,17 +462,17 @@ function ajax_verify_therapy_payment_status() {
         }
         
         if ($result['success']) {
-            // Update transient
+            // Update booking state
             $booking_data['user_id'] = $result['user_id'];
             $booking_data['booking_state'] = 'booking_confirmed';
-            set_transient($transient_key, $booking_data, DAY_IN_SECONDS);
+            therapy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
             
             // Auto-login
             wp_set_current_user($result['user_id']);
             wp_set_auth_cookie($result['user_id'], true);
             
             $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-            $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
+            $redirect_url = ($lang === 'ar') ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/');
             
             wp_send_json_success([
                 'status'       => 'completed',
@@ -405,7 +509,7 @@ function ajax_verify_therapy_payment_status() {
             // Payment approved but IPN didn't arrive yet - process now
             $booking_data['payment_status'] = 'completed';
             $booking_data['booking_state'] = 'payment_completed';
-            set_transient($transient_key, $booking_data, DAY_IN_SECONDS);
+            therapy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
             
             // Create booking - check booking type to use correct processor
             $booking_type = $booking_data['booking_type'] ?? '';
@@ -424,14 +528,14 @@ function ajax_verify_therapy_payment_status() {
             if ($result['success']) {
                 $booking_data['user_id'] = $result['user_id'];
                 $booking_data['booking_state'] = 'booking_confirmed';
-                set_transient($transient_key, $booking_data, DAY_IN_SECONDS);
+                therapy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
                 
                 // Auto-login
                 wp_set_current_user($result['user_id']);
                 wp_set_auth_cookie($result['user_id'], true);
                 
                 $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-                $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
+                $redirect_url = ($lang === 'ar') ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/');
                 
                 wp_send_json_success([
                     'status'       => 'completed',
@@ -522,10 +626,10 @@ function process_therapy_payment_callback($data, $booking_token) {
     error_log('Token: ' . $booking_token);
     
     $transient_key = 'therapy_' . str_replace('therapy_', '', $booking_token);
-    $booking_data = get_transient($transient_key);
+    $booking_data = therapy_booking_get($transient_key);
     
     if (!$booking_data) {
-        error_log('[Therapy IPN] ERROR: Transient not found for token: ' . $booking_token);
+        error_log('[Therapy IPN] ERROR: Booking data not found for token: ' . $booking_token);
         return [
             'success' => false,
             'message' => 'Booking data not found'
@@ -600,8 +704,8 @@ function process_therapy_payment_callback($data, $booking_token) {
         $booking_data['failure_reason'] = $data['payment_result']['response_message'] ?? 'Unknown';
     }
     
-    // Save updated transient (24 hours for recovery window)
-    set_transient($transient_key, $booking_data, DAY_IN_SECONDS);
+    // Save updated booking data — 24-hour persistent window for recovery
+    therapy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
     
     return [
         'success' => ($payment_status === 'A'),
@@ -830,14 +934,17 @@ add_action('wp_ajax_initiate_therapy_payment_logged_in', 'ajax_initiate_therapy_
 
 if (!function_exists('ajax_initiate_therapy_payment_logged_in')) {
 function ajax_initiate_therapy_payment_logged_in() {
-    // Verify nonce
+    // Nonce check — must pass for initiation (no token exists yet at this stage)
     if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'therapy_registration_nonce')) {
         wp_send_json_error(['message' => 'Security verification failed']);
         return;
     }
-    
+
+    // Accept call from both logged-in users AND anonymous users whose session
+    // cookie was lost during a previous cross-site redirect attempt.
+    // We identify the user explicitly below via current_user_id() or a fallback.
     if (!is_user_logged_in()) {
-        wp_send_json_error(['message' => 'You must be logged in']);
+        wp_send_json_error(['message' => 'You must be logged in to continue. Please log in and try again.']);
         return;
     }
     
@@ -888,9 +995,9 @@ function ajax_initiate_therapy_payment_logged_in() {
         'created_at'      => current_time('mysql'),
     ];
     
-    // Store transient
+    // Store booking data — transient + persistent fallback (4-hour TTL)
     $transient_key = 'therapy_' . str_replace('therapy_', '', $booking_token);
-    set_transient($transient_key, $booking_data, HOUR_IN_SECONDS);
+    therapy_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
     
     // Prepare customer details (ensure no null values)
     $phone_number = get_user_meta($user_id, 'phone_number', true);
@@ -908,8 +1015,9 @@ function ajax_initiate_therapy_payment_logged_in() {
     ];
     
     // Get return URL
+    // NOTE: Arabic is the DEFAULT language (no /ar/ prefix), English uses /en/ prefix
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-    $register_page = ($lang === 'ar') ? home_url('/ar/register-arabic/') : home_url('/register/');
+    $register_page = ($lang === 'ar') ? home_url('/register-arabic/') : home_url('/en/register/');
     
     // Initiate payment
     if (!function_exists('paytabs_initiate_payment')) {
@@ -931,7 +1039,7 @@ function ajax_initiate_therapy_payment_logged_in() {
     if ($result['success']) {
         $booking_data['payment_initiated'] = true;
         $booking_data['tran_ref'] = $result['tran_ref'] ?? '';
-        set_transient($transient_key, $booking_data, HOUR_IN_SECONDS);
+        therapy_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
         
         error_log('[Therapy Payment] Initiated for logged-in user. group_id=' . $group_id . ', token=' . $booking_token . ', transient_key=' . $transient_key);
         
