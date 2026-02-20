@@ -1088,14 +1088,16 @@ function fix_session_period_modal_js()
             'subtitle' => 'Please choose your preferred therapy session period:',
             'issue' => 'Issue',
             'gender' => 'Gender',
-            'session' => 'Session Period'
+            'session' => 'Session Period',
+            'waitingListBtn' => 'Put me on the waiting list if other dates are available'
         ],
         'ar' => [
             'title' => 'اختر فترة الجلسة',
             'subtitle' => 'يرجى اختيار فترة جلسة العلاج المفضلة لديك:',
             'issue' => 'المشكلة',
             'gender' => 'الجنس',
-            'session' => 'فترة الجلسة'
+            'session' => 'فترة الجلسة',
+            'waitingListBtn' => 'ضعني في قائمة الانتظار إذا كانت هناك تواريخ أخرى متاحة'
         ]
     ];
 
@@ -1138,7 +1140,7 @@ function fix_session_period_modal_js()
 
                 // Create modal HTML (without issue/gender dropdowns - just display as text)
                 var containerExtra = currentLang === 'ar' ? 'direction:rtl; text-align:right;' : '';
-                var modalHtml = '<div id="session-period-modal-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:99999; display:flex; align-items:center; justify-content:center;">';
+                var modalHtml = '<div id="session-period-modal-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999998; display:flex; align-items:center; justify-content:center;">';
                 modalHtml += '<div style="background:#fff; padding:30px; border-radius:12px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; position:relative;' + containerExtra + '">';
                 modalHtml += '<span class="close-session-modal" style="position:absolute; top:10px; right:15px; font-size:24px; cursor:pointer; color:#666;">&times;</span>';
                 modalHtml += '<h3 style="margin:0 0 10px 0; font-weight:700;">' + modalStrings.title + '</h3>';
@@ -1157,6 +1159,12 @@ function fix_session_period_modal_js()
                 modalHtml += '</div>';
 
                 modalHtml += '<div class="session-options-container">' + optionsHtml + '</div>';
+
+                // Add waiting list button footer
+                modalHtml += '<div style="padding-top:20px; border-top:1px solid #e0e0e0; margin-top:10px;">';
+                modalHtml += '<button type="button" id="modal-waiting-list-btn" style="background:linear-gradient(135deg, #C3DDD2, #6059A6); color:#fff; border:none; padding:12px 20px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600; width:100%;">' + modalStrings.waitingListBtn + '</button>';
+                modalHtml += '</div>';
+
                 modalHtml += '</div></div>';
 
                 $('body').append(modalHtml);
@@ -1193,6 +1201,78 @@ function fix_session_period_modal_js()
                     if (e.target === this) {
                         $('#session-period-modal-overlay').remove();
                     }
+                });
+
+                // Handle waiting list button click
+                $('#modal-waiting-list-btn').on('click', function() {
+                    // Close session modal
+                    $('#session-period-modal-overlay').remove();
+
+                    // Build waiting list modal
+                    var waitingModalStrings = currentLang === 'ar' ? {
+                        title: 'انضم إلى قائمة الانتظار',
+                        namePlaceholder: 'الاسم الكامل',
+                        emailPlaceholder: 'عنوان البريد الإلكتروني',
+                        phonePlaceholder: 'رقم الهاتف',
+                        submitBtn: 'إرسال',
+                        successMsg: 'شكراً لك! تمت إضافتك إلى قائمة الانتظار.'
+                    } : {
+                        title: 'Join Waiting List',
+                        namePlaceholder: 'Full Name',
+                        emailPlaceholder: 'Email Address',
+                        phonePlaceholder: 'Phone Number',
+                        submitBtn: 'Submit',
+                        successMsg: 'Thank you! You have been added to the waiting list.'
+                    };
+
+                    var waitingContainerExtra = currentLang === 'ar' ? 'direction:rtl; text-align:right;' : '';
+                    var waitingModalHtml = '<div id="waiting-list-modal-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999999; display:flex; align-items:center; justify-content:center;">';
+                    waitingModalHtml += '<div style="background:#fff; padding:25px; border-radius:12px; max-width:420px; width:90%; position:relative;' + waitingContainerExtra + '">';
+                    waitingModalHtml += '<span class="close-waiting-modal" style="position:absolute; top:10px; right:14px; font-size:22px; cursor:pointer; z-index:1;">&times;</span>';
+                    waitingModalHtml += '<h3 style="margin-bottom:15px; font-weight:700; font-size:20px;">' + waitingModalStrings.title + '</h3>';
+                    waitingModalHtml += '<form id="waiting-list-form-dynamic">';
+                    waitingModalHtml += '<input type="text" name="name" placeholder="' + waitingModalStrings.namePlaceholder + '" required style="width:100%; padding:12px; margin:8px 0 0 0; border-radius:8px; border:1px solid #ccc; box-sizing:border-box;">';
+                    waitingModalHtml += '<input type="email" name="email" placeholder="' + waitingModalStrings.emailPlaceholder + '" required style="width:100%; padding:12px; margin:8px 0 0 0; border-radius:8px; border:1px solid #ccc; box-sizing:border-box;">';
+                    waitingModalHtml += '<input type="text" name="phone" placeholder="' + waitingModalStrings.phonePlaceholder + '" style="width:100%; padding:12px; margin:8px 0 0 0; border-radius:8px; border:1px solid #ccc; box-sizing:border-box;">';
+                    waitingModalHtml += '<input type="hidden" name="topic" value="' + issue + '">';
+                    waitingModalHtml += '<input type="hidden" name="gender" value="' + gender + '">';
+                    waitingModalHtml += '<div class="waiting-success-msg" style="display:none; color:#2e7d32; font-weight:600; text-align:center; padding:15px; background:#e8f5e9; border-radius:8px; margin-top:10px;">' + waitingModalStrings.successMsg + '</div>';
+                    waitingModalHtml += '<button type="submit" style="width:100%; margin-top:12px; padding:12px; background:linear-gradient(135deg, #C3DDD2, #6059A6); color:#fff; border:none; border-radius:8px; font-weight:600; cursor:pointer;">' + waitingModalStrings.submitBtn + '</button>';
+                    waitingModalHtml += '</form>';
+                    waitingModalHtml += '</div></div>';
+
+                    $('body').append(waitingModalHtml);
+
+                    // Close waiting modal
+                    $('.close-waiting-modal, #waiting-list-modal-overlay').on('click', function(e) {
+                        if (e.target === this) {
+                            $('#waiting-list-modal-overlay').remove();
+                        }
+                    });
+
+                    // Handle form submit
+                    $('#waiting-list-form-dynamic').on('submit', function(e) {
+                        e.preventDefault();
+                        var formData = $(this).serialize();
+
+                        $.post(assessment_ajax.ajaxurl, {
+                            action: 'add_to_waiting_list',
+                            form: formData
+                        }, function(response) {
+                            if (response.success) {
+                                // Reset form and show success message
+                                $('#waiting-list-form-dynamic')[0].reset();
+                                $('.waiting-success-msg').show();
+
+                                // Auto-close modal after 2 seconds
+                                setTimeout(function() {
+                                    $('#waiting-list-modal-overlay').remove();
+                                }, 2000);
+                            } else {
+                                alert(currentLang === 'ar' ? 'خطأ! الرجاء المحاولة مرة أخرى.' : 'Error! Please try again.');
+                            }
+                        });
+                    });
                 });
             });
         });
@@ -1691,14 +1771,13 @@ add_action('admin_menu', function () {
     if ($dashboard) {
         array_unshift($menu, $dashboard);
     }
-
 }, 9999);
 
 add_filter('wp_nav_menu_objects', function ($items) {
 
     foreach ($items as $key => $item) {
 
-        // Logged in user
+        // Logged-in users
         if (is_user_logged_in()) {
 
             // Remove Login
@@ -1706,14 +1785,15 @@ add_filter('wp_nav_menu_objects', function ($items) {
                 unset($items[$key]);
             }
 
-        } 
-        // Logged out user
+        }
+        // Logged-out users
         else {
 
-            // Remove Dashboard & Logout
+            // Remove Dashboard, Logout, Chat
             if (
                 in_array('menu-dashboard', $item->classes) ||
-                in_array('menu-logout', $item->classes)
+                in_array('menu-logout', $item->classes) ||
+                in_array('menu-chat', $item->classes)
             ) {
                 unset($items[$key]);
             }
@@ -1722,4 +1802,3 @@ add_filter('wp_nav_menu_objects', function ($items) {
 
     return $items;
 });
-
