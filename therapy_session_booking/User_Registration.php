@@ -14,10 +14,10 @@ add_action('template_redirect', function () {
         @session_start();
     }
 
-    // Redirect /ar/register-2/ to /ar/register-arabic/
+    // Redirect legacy /ar/register-2/ to /register-arabic/ (Arabic is default language, no /ar/ prefix)
     $current_url = $_SERVER['REQUEST_URI'] ?? '';
     if (strpos($current_url, '/ar/register-2') !== false || strpos($current_url, '/ar/register-2/') !== false) {
-        wp_safe_redirect(home_url('/ar/register-arabic/'));
+        wp_safe_redirect(home_url('/register-arabic/'));
         exit;
     }
 
@@ -61,18 +61,22 @@ add_action('template_redirect', function () {
 
     // Handle post-registration redirect (Therapy Group only)
     // Works for both auto-login and non-auto-login scenarios
-    // Skip redirect if on retreat pages or AJAX requests
+    // Skip redirect if on retreat pages, AJAX requests, or payment return callbacks
     if (!empty($_SESSION['just_registered'])) {
-        // Check if we're on a retreat page - don't redirect for retreat registrations
         $current_url = $_SERVER['REQUEST_URI'] ?? '';
-        $is_retreat_page = (strpos($current_url, 'retreat') !== false);
-        $is_ajax = defined('DOING_AJAX') && DOING_AJAX;
+        $is_retreat_page   = (strpos($current_url, 'retreat') !== false);
+        $is_ajax           = defined('DOING_AJAX') && DOING_AJAX;
+        // IMPORTANT: do NOT redirect away if the user is returning from PayTabs
+        // payment — the page needs to verify the payment before redirecting.
+        $is_payment_return = isset($_GET['payment_return'])
+                             && strpos(sanitize_text_field($_GET['payment_return']), 'therapy_') === 0;
 
-        if (!$is_retreat_page && !$is_ajax) {
+        if (!$is_retreat_page && !$is_ajax && !$is_payment_return) {
             unset($_SESSION['just_registered']);
 
             $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-            $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
+            // NOTE: Arabic is DEFAULT language (no /ar/ prefix); English uses /en/ prefix
+            $redirect_url = ($lang === 'ar') ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/');
 
             wp_safe_redirect($redirect_url);
             exit;
@@ -931,7 +935,8 @@ function render_therapy_registration_form()
                         if (data.success && data.data.status === 'completed') {
                             setStatus(messages.success, false);
                             setTimeout(() => {
-                                window.location.href = data.data.redirect_url || (isRtl ? '/ar/thank-you-arabic' : '/thank-you');
+                                // Arabic is default language (no /ar/ prefix); English uses /en/ prefix
+                                window.location.href = data.data.redirect_url || (isRtl ? '/thank-you-arabic/' : '/en/thank-you/');
                             }, 1500);
                         } else {
                             setStatus(data.data?.message || messages.error, true);
@@ -1471,7 +1476,8 @@ function render_therapy_registration_form()
                     if (data.success && data.data.status === 'completed') {
                         showAlert(messages.successRedirect, 'success');
                         setTimeout(() => {
-                            window.location.href = data.data.redirect_url || window.location.origin + '/thank-you';
+                            // Arabic is default language (no /ar/ prefix); English uses /en/ prefix
+                            window.location.href = data.data.redirect_url || (isRtl ? window.location.origin + '/thank-you-arabic/' : window.location.origin + '/en/thank-you/');
                         }, 1500);
                     } else if (data.success && (data.data.status === 'pending_payment' || data.data.payment_status === 'pending')) {
                         showAlert(isRtl ? 'الدفع قيد الانتظار. يرجى إكمال عملية الدفع.' : 'Payment is pending. Please complete the payment process.', 'error');
@@ -1875,8 +1881,9 @@ function handle_therapy_custom_registration()
     $_SESSION['just_registered'] = true;
 
     // Determine redirect URL
+    // NOTE: Arabic is the DEFAULT language (no /ar/ prefix), English uses /en/ prefix
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-    $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
+    $redirect_url = ($lang === 'ar') ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/');
 
     error_log("Custom Therapy Registration complete for user ID: $user_id");
 
@@ -1988,8 +1995,9 @@ function handle_therapy_logged_in_registration()
     $_SESSION['just_registered'] = true;
 
     // Determine redirect URL
+    // NOTE: Arabic is the DEFAULT language (no /ar/ prefix), English uses /en/ prefix
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
-    $redirect_url = ($lang === 'ar') ? home_url('/ar/thank-you-arabic') : home_url('/thank-you');
+    $redirect_url = ($lang === 'ar') ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/');
 
     error_log("Logged-in Therapy Registration complete for user ID: $user_id");
 
