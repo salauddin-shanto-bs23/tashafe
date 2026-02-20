@@ -17,7 +17,7 @@ add_action('init', function () {
         ],
         'public'       => false,
         'show_ui'      => true,
-        'show_in_menu' => true,
+        'show_in_menu' => false,
         'menu_icon'    => 'dashicons-palmtree',
         'supports'     => ['title'],
     ]);
@@ -449,6 +449,15 @@ if (!function_exists('retreat_translate')) {
     }
 }
 
+if (!function_exists('retreat_convert_to_arabic_numerals')) {
+    function retreat_convert_to_arabic_numerals($number)
+    {
+        $english = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ','];
+        $arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩', '،'];
+        return str_replace($english, $arabic, $number);
+    }
+}
+
 function retreat_get_js_strings()
 {
     $is_ar = retreat_is_arabic_locale();
@@ -633,7 +642,7 @@ function ajax_get_retreat_details()
     $trip_destination = get_field('trip_destination', $group_id);
     $retreat_description = get_field('retreat_description', $group_id);
     $retreat_price_sar = get_field('retreat_price_sar', $group_id);
-    $retreat_price_usd = get_field('retreat_price_usd', $group_id);
+    $retreat_price_double_sar = get_field('retreat_price_double_sar', $group_id);
     $package_includes = get_field('package_includes', $group_id);
     $max_participants = intval(get_field('max_participants', $group_id)) ?: 20;
     $current_members = count_retreat_group_members($group_id);
@@ -659,7 +668,7 @@ function ajax_get_retreat_details()
         'title' => get_the_title($group_id),
         'description' => $retreat_description,
         'price_sar' => $retreat_price_sar,
-        'price_usd' => $retreat_price_usd,
+        'price_double_sar' => $retreat_price_double_sar,
         'date_range' => $date_range ?: 'Dates to be announced',
         'location' => $trip_destination ?: 'Location to be announced',
         'package_items' => $package_items,
@@ -1349,15 +1358,26 @@ add_action('wp_footer', function () {
 
             <!-- Details Content -->
             <div style="padding:30px;">
-                <h2 id="retreat-title" style="color:#333;margin:0 0 15px;font-size:26px;font-weight:700;"></h2>
-                <p id="retreat-description" style="color:#555;line-height:1.7;font-size:15px;margin-bottom:25px;"></p>
+                <!-- Title and Description hidden as per requirement -->
+                <h2 id="retreat-title" style="display:none;"></h2>
+                <p id="retreat-description" style="display:none;"></p>
 
-                <!-- Package Price Box -->
-                <div style="background:#f8f5ff;padding:15px 20px;border-radius:10px;margin-bottom:25px;">
-                    <span style="color:#666;font-size:13px;display:block;">
-                        <?php echo esc_html(retreat_translate('Package Price', 'سعر الباقة')); ?>
-                    </span>
-                    <span id="retreat-price" style="color:#6059A6;font-size:22px;font-weight:700;"></span>
+                <!-- Package Selection Dropdown -->
+                <div style="background:#f8f5ff;padding:20px;border-radius:10px;margin-bottom:25px;">
+                    <label style="color:#666;font-size:13px;display:block;margin-bottom:10px;">
+                        <?php echo esc_html(retreat_translate('Select Package', 'اختر الباقة')); ?>
+                    </label>
+                    <select id="retreat-package-select" style="width:100%;padding:12px 15px;border:2px solid #e0e0e0;border-radius:8px;font-size:15px;font-weight:500;color:#333;background:#fff;cursor:pointer;appearance:auto;">
+                        <option value=""><?php echo esc_html(retreat_translate('-- Select Room Type --', '-- اختر نوع الغرفة --')); ?></option>
+                        <option value="single" data-price=""><?php echo esc_html(retreat_translate('Single Room', 'غرفة مفردة')); ?></option>
+                        <option value="double" data-price=""><?php echo esc_html(retreat_translate('Double Room', 'غرفة مزدوجة')); ?></option>
+                    </select>
+                    <div style="margin-top:15px;padding-top:15px;border-top:1px solid #e8e0f5;">
+                        <span style="color:#666;font-size:13px;display:block;">
+                            <?php echo esc_html(retreat_translate('Package Price', 'سعر الباقة')); ?>
+                        </span>
+                        <span id="retreat-price" style="color:#6059A6;font-size:22px;font-weight:700;"><?php echo esc_html(retreat_translate('Select a package', 'اختر باقة')); ?></span>
+                    </div>
                 </div>
 
                 <!-- Info Grid -->
@@ -1384,18 +1404,7 @@ add_action('wp_footer', function () {
                             <span id="retreat-location" style="color:#333;font-weight:600;font-size:14px;"></span>
                         </div>
                     </div>
-                    <div style="display:flex;align-items:flex-start;gap:12px;">
-                        <div style="width:42px;height:42px;background:#6059A6;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                            <span style="color:#fff;font-size:18px;">﷼</span>
-                        </div>
-                        <div>
-                            <span style="color:#666;font-size:12px;display:block;">
-                                <?php echo esc_html(retreat_translate('Price (SAR):', 'السعر (ريال):')); ?>
-                            </span>
-                            <span id="retreat-price-sar" style="color:#333;font-weight:600;font-size:14px;"></span>
-                        </div>
-                    </div>
-                    <!-- Availability removed -->
+                    <!-- Price section removed - now in package dropdown above -->
                 </div>
 
                 <!-- Package Includes -->
@@ -1426,6 +1435,7 @@ add_action('wp_footer', function () {
                 <input type="hidden" name="retreat_type" id="reg_retreat_type">
                 <input type="hidden" name="group_id" id="reg_group_id">
                 <input type="hidden" name="amount" id="reg_amount">
+                <input type="hidden" name="package_type" id="reg_package_type">
 
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                     <div class="form-group">
@@ -2363,6 +2373,17 @@ add_action('wp_footer', function () {
     </style>
 
     <script>
+        // Global function for converting numerals to Arabic (accessible from all scripts)
+        function convertToArabicNumerals(num) {
+            if (!num) return num;
+            const english = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+            const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+            return String(num).split('').map(char => {
+                const idx = english.indexOf(char);
+                return idx !== -1 ? arabic[idx] : char;
+            }).join('');
+        }
+        
         jQuery(document).ready(function($) {
             // ===== PAYMENT RETURN HANDLING =====
             // Check if we're returning from PayTabs payment
@@ -2602,8 +2623,17 @@ add_action('wp_footer', function () {
 
             // Schedule card click - go to details
             $(document).on('click', '.schedule-card', function() {
+                console.log('Schedule card clicked');
                 selectedGroupId = $(this).data('group-id');
+                console.log('Selected group ID:', selectedGroupId);
                 syncToWindow();
+                
+                if (!selectedGroupId) {
+                    console.error('No group ID found on schedule card');
+                    alert('Error: No group ID found');
+                    return;
+                }
+                
                 loadRetreatDetails(selectedGroupId);
 
                 $('#retreat-schedule-modal').fadeOut(300, function() {
@@ -2631,13 +2661,19 @@ add_action('wp_footer', function () {
 
             // ===== STEP 3: RETREAT DETAILS MODAL =====
             function loadRetreatDetails(groupId) {
+                console.log('loadRetreatDetails called with groupId:', groupId);
+                const isAr = (typeof RETREAT_AJAX !== 'undefined' && RETREAT_AJAX.lang === 'ar');
+                console.log('Is Arabic:', isAr);
+                
                 $.post(RETREAT_AJAX.url, {
                     action: 'get_retreat_details',
                     group_id: groupId,
                     retreat_type: selectedRetreatType,
                     nonce: RETREAT_AJAX.nonce
                 }, function(response) {
+                    console.log('AJAX response received:', response);
                     if (response.success) {
+                        console.log('Response success, data:', response.data);
                         selectedRetreatData = response.data;
                         syncToWindow();
                         let d = response.data;
@@ -2658,14 +2694,53 @@ add_action('wp_footer', function () {
                         $('#retreat-dates').text(d.date_range || 'TBA');
                         $('#retreat-location').text(d.location || 'TBA');
 
-                        // Price
-                        let sarPrice = d.price_sar ? String(d.price_sar).trim() : '';
-                        let priceText = sarPrice ? sarPrice + ' SAR' : 'Contact for price';
-                        $('#retreat-price').text(priceText);
-                        $('#retreat-price-sar').text(priceText);
+                        // Set up package dropdown with prices
+                        const singlePrice = d.price_sar ? String(d.price_sar).trim() : '';
+                        const doublePrice = d.price_double_sar ? String(d.price_double_sar).trim() : '';
+                        console.log('Prices - Single:', singlePrice, 'Double:', doublePrice);
                         
-                        // Store amount for payment (use numeric value or 0)
-                        window.retreatAmount = parseFloat(sarPrice) || 0;
+                        // Update dropdown options with prices
+                        const $packageSelect = $('#retreat-package-select');
+                        $packageSelect.val(''); // Reset selection
+                        $packageSelect.find('option[value="single"]').attr('data-price', singlePrice);
+                        $packageSelect.find('option[value="double"]').attr('data-price', doublePrice);
+                        
+                        // Update option labels with prices
+                        let singleLabel, doubleLabel;
+                        try {
+                            singleLabel = isAr ? 
+                                (singlePrice ? 'غرفة مفردة - ' + convertToArabicNumerals(singlePrice) + ' ريال' : 'غرفة مفردة') :
+                                (singlePrice ? 'Single Room - ' + singlePrice + ' SAR' : 'Single Room');
+                            doubleLabel = isAr ? 
+                                (doublePrice ? 'غرفة مزدوجة - ' + convertToArabicNumerals(doublePrice) + ' ريال' : 'غرفة مزدوجة') :
+                                (doublePrice ? 'Double Room - ' + doublePrice + ' SAR' : 'Double Room');
+                            console.log('Labels created - Single:', singleLabel, 'Double:', doubleLabel);
+                        } catch (error) {
+                            console.error('Error creating labels:', error);
+                            singleLabel = isAr ? 'غرفة مفردة' : 'Single Room';
+                            doubleLabel = isAr ? 'غرفة مزدوجة' : 'Double Room';
+                        }
+                        
+                        $packageSelect.find('option[value="single"]').text(singleLabel);
+                        $packageSelect.find('option[value="double"]').text(doubleLabel);
+                        console.log('Dropdown options updated');
+                        
+                        // Hide options that don't have prices
+                        if (!singlePrice) $packageSelect.find('option[value="single"]').hide();
+                        else $packageSelect.find('option[value="single"]').show();
+                        if (!doublePrice) $packageSelect.find('option[value="double"]').hide();
+                        else $packageSelect.find('option[value="double"]').show();
+                        
+                        // Reset price display
+                        $('#retreat-price').text(isAr ? 'اختر باقة' : 'Select a package');
+                        window.retreatAmount = 0;
+                        window.selectedPackageType = null;
+                        
+                        // Store prices for dropdown handler
+                        window.retreatPrices = {
+                            single: parseFloat(singlePrice) || 0,
+                            double: parseFloat(doublePrice) || 0
+                        };
 
                         // Package includes
                         if (d.package_items && d.package_items.length > 0) {
@@ -2686,9 +2761,44 @@ add_action('wp_footer', function () {
                     }
                 });
             }
+            
+            // Package dropdown change handler (global for both modal contexts)
+            $(document).on('change', '#retreat-package-select', function() {
+                const isAr = (typeof RETREAT_AJAX !== 'undefined' && RETREAT_AJAX.lang === 'ar');
+                const selectedPackage = $(this).val();
+                const selectedOption = $(this).find('option:selected');
+                const priceStr = selectedOption.attr('data-price');
+                
+                if (selectedPackage && priceStr) {
+                    const price = parseFloat(priceStr) || 0;
+                    let priceText;
+                    if (price > 0) {
+                        priceText = isAr ? 
+                            (convertToArabicNumerals(priceStr) + ' ر.س') : 
+                            (priceStr + ' SAR');
+                    } else {
+                        priceText = isAr ? 'تواصل لمعرفة السعر' : 'Contact for price';
+                    }
+                    $('#retreat-price').text(priceText);
+                    window.retreatAmount = price;
+                    window.selectedPackageType = selectedPackage;
+                } else {
+                    $('#retreat-price').text(isAr ? 'اختر باقة' : 'Select a package');
+                    window.retreatAmount = 0;
+                    window.selectedPackageType = null;
+                }
+            });
 
             // Proceed to registration (from Book Your Spot button)
             $(document).on('click', '#book-spot-btn', function() {
+                const isAr = (typeof RETREAT_AJAX !== 'undefined' && RETREAT_AJAX.lang === 'ar');
+                
+                // Validate package selection
+                if (!window.selectedPackageType || !window.retreatAmount) {
+                    alert(isAr ? 'الرجاء اختيار نوع الباقة' : 'Please select a package type');
+                    return;
+                }
+                
                 // Sync from window in case values were set by card shortcode
                 syncFromWindow();
 
@@ -2697,6 +2807,7 @@ add_action('wp_footer', function () {
                     $('#reg_retreat_type').val(selectedRetreatType || window.selectedRetreatType);
                     $('#reg_group_id').val(selectedGroupId || window.selectedGroupId);
                     $('#reg_amount').val(window.retreatAmount || 0);
+                    $('#reg_package_type').val(window.selectedPackageType || '');
                     $('#retreat-register-modal').css('display', 'flex').hide().fadeIn(300);
 
                     // Initialize Select2 for country dropdown
@@ -3217,6 +3328,7 @@ function render_retreat_event_cards()
                 $end_date = get_field('end_date', $group->ID);
                 $location = get_field('trip_destination', $group->ID);
                 $price_sar = get_field('retreat_price_sar', $group->ID);
+                $price_double_sar = get_field('retreat_price_double_sar', $group->ID);
 
                 $date_label = retreat_format_date_range($start_date, $end_date);
                 if (!$date_label) {
@@ -3229,6 +3341,7 @@ function render_retreat_event_cards()
                     'date_label' => $date_label,
                     'location' => $location ?: retreat_translate('Location TBA', 'سيتم تحديد الموقع لاحقاً'),
                     'price_sar' => $price_sar ?: '',
+                    'price_double_sar' => $price_double_sar ?: '',
                     'available_spots' => $available_spots
                 ];
             }
@@ -3756,7 +3869,29 @@ function render_retreat_event_cards()
             $title = $is_ar ? $content['title_ar'] : $content['title_en'];
             $badge = $is_ar ? $content['badge_ar'] : $content['badge_en'];
             $desc = $is_ar ? $content['desc_ar'] : $content['desc_en'];
-            $cost = $is_ar ? $content['cost_ar'] : $content['cost_en'];
+            
+            // Get dynamic cost from first available schedule
+            $cost = $is_ar ? $content['cost_ar'] : $content['cost_en']; // Default fallback
+            if ($has_schedules && !empty($schedules[0])) {
+                $first_schedule = $schedules[0];
+                $single_price = $first_schedule['price_sar'] ?? '';
+                $double_price = $first_schedule['price_double_sar'] ?? '';
+                
+                if ($single_price || $double_price) {
+                    if ($is_ar) {
+                        $cost_parts = [];
+                        if ($single_price) $cost_parts[] = 'الغرفة المفردة ' . retreat_convert_to_arabic_numerals(number_format((float)$single_price)) . ' ريال';
+                        if ($double_price) $cost_parts[] = 'الغرفة المزدوجة ' . retreat_convert_to_arabic_numerals(number_format((float)$double_price)) . ' ريال';
+                        $cost = implode(' / ', $cost_parts);
+                    } else {
+                        $cost_parts = [];
+                        if ($single_price) $cost_parts[] = 'Single room: ' . number_format((float)$single_price) . ' SAR';
+                        if ($double_price) $cost_parts[] = 'Double room: ' . number_format((float)$double_price) . ' SAR';
+                        $cost = implode(' / ', $cost_parts);
+                    }
+                }
+            }
+            
             $requirements = $is_ar ? $content['requirements_ar'] : $content['requirements_en'];
             $location = $is_ar ? $content['location_ar'] : $content['location_en'];
         ?>
@@ -3888,7 +4023,6 @@ function render_retreat_event_cards()
                     schedules.forEach(function(schedule) {
                         html += `<div class="retreat-schedule-option" data-group-id="${schedule.group_id}">
                             <span class="retreat-schedule-option-date">${schedule.date_label}</span>
-                            <span class="retreat-schedule-option-spots">${schedule.available_spots} ${isAr ? 'مقاعد متاحة' : 'spots available'}</span>
                         </div>`;
                     });
                     html += '</div>';
@@ -3942,13 +4076,49 @@ function render_retreat_event_cards()
                         $('#retreat-dates').text(d.date_range || 'TBA');
                         $('#retreat-location').text(d.location || 'TBA');
 
-                        const sarPrice = d.price_sar ? String(d.price_sar).trim() : '';
-                        const priceText = sarPrice ? sarPrice + (isAr ? ' ر.س' : ' SAR') : (isAr ? 'تواصل لمعرفة السعر' : 'Contact for price');
-                        $('#retreat-price').text(priceText);
-                        $('#retreat-price-sar').text(priceText);
+                        // Set up package dropdown with prices
+                        const singlePrice = d.price_sar ? String(d.price_sar).trim() : '';
+                        const doublePrice = d.price_double_sar ? String(d.price_double_sar).trim() : '';
                         
-                        // Store amount for payment
-                        window.retreatAmount = parseFloat(sarPrice) || 0;
+                        // Update dropdown options with prices
+                        const $packageSelect = $('#retreat-package-select');
+                        $packageSelect.val(''); // Reset selection
+                        $packageSelect.find('option[value="single"]').attr('data-price', singlePrice);
+                        $packageSelect.find('option[value="double"]').attr('data-price', doublePrice);
+                        
+                        // Update option labels with prices
+                        let singleLabel, doubleLabel;
+                        try {
+                            singleLabel = isAr ? 
+                                (singlePrice ? 'غرفة مفردة - ' + convertToArabicNumerals(singlePrice) + ' ريال' : 'غرفة مفردة') :
+                                (singlePrice ? 'Single Room - ' + singlePrice + ' SAR' : 'Single Room');
+                            doubleLabel = isAr ? 
+                                (doublePrice ? 'غرفة مزدوجة - ' + convertToArabicNumerals(doublePrice) + ' ريال' : 'غرفة مزدوجة') :
+                                (doublePrice ? 'Double Room - ' + doublePrice + ' SAR' : 'Double Room');
+                        } catch (error) {
+                            console.error('Error creating labels in footer section:', error);
+                            singleLabel = isAr ? 'غرفة مفردة' : 'Single Room';
+                            doubleLabel = isAr ? 'غرفة مزدوجة' : 'Double Room';
+                        }
+                        
+                        $packageSelect.find('option[value="single"]').text(singleLabel);
+                        $packageSelect.find('option[value="double"]').text(doubleLabel);
+                        
+                        // Hide options that don't have prices
+                        if (!singlePrice) $packageSelect.find('option[value="single"]').hide();
+                        else $packageSelect.find('option[value="single"]').show();
+                        if (!doublePrice) $packageSelect.find('option[value="double"]').hide();
+                        else $packageSelect.find('option[value="double"]').show();
+                        
+                        // Reset price display
+                        $('#retreat-price').text(isAr ? 'اختر باقة' : 'Select a package');
+                        window.retreatAmount = 0;
+                        
+                        // Store prices for dropdown handler
+                        window.retreatPrices = {
+                            single: parseFloat(singlePrice) || 0,
+                            double: parseFloat(doublePrice) || 0
+                        };
 
                         if (d.package_items && d.package_items.length > 0) {
                             let listHtml = '';
@@ -3991,15 +4161,6 @@ function render_retreat_event_cards()
             $(document).on('click', '#retreat-schedule-selection-modal', function(e) {
                 if (e.target.id === 'retreat-schedule-selection-modal') {
                     $(this).fadeOut(200);
-                }
-            });
-
-            // Book spot button handler
-            $(document).on('click', '#book-spot-btn', function() {
-                if (window.selectedRetreatType && window.selectedGroupId) {
-                    $('#reg_retreat_type').val(window.selectedRetreatType);
-                    $('#reg_group_id').val(window.selectedGroupId);
-                    $('#reg_amount').val(window.retreatAmount || 0);
                 }
             });
         });
