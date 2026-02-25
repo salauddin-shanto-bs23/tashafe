@@ -1506,22 +1506,22 @@ function academy_send_session_notification($session_id)
 function academy_send_session_email($registration, $session)
 {
     $to = $registration['email'];
-    $subject = 'Tanafs Academy - Upcoming Session: ' . $session['program_name'];
+    $subject = 'تذكير بجلسة قادمة – أكاديمية تنفّس';
 
     $session_date = date('l, F j, Y', strtotime($session['session_date']));
     $session_time = substr($session['start_time'], 0, 5) . ' - ' . substr($session['end_time'], 0, 5);
 
-    $zoom_link = $session['zoom_join_url'] ? $session['zoom_join_url'] : 'Will be provided soon';
+    $zoom_link = $session['zoom_join_url'] ? $session['zoom_join_url'] : '#';
     $zoom_password = $session['zoom_password'] ? $session['zoom_password'] : 'N/A';
 
-    $message = <<<HTML
+    $message = '
 <!DOCTYPE html>
-<html>
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif;">
+<body style="margin:0; padding:0; background:#f6f6f6; font-family:\'Almarai\', Arial, sans-serif; direction:rtl;">
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6; padding:40px 0;">
         <tr>
             <td align="center">
@@ -1533,39 +1533,39 @@ function academy_send_session_email($registration, $session)
                         <td style="background:linear-gradient(135deg, #C3DDD2, #6059A6);
                                    padding:30px 20px; text-align:center;
                                    color:#ffffff; font-size:24px; font-weight:bold;">
-                            Tanafs Academy - Session Reminder
+                            تذكير بجلسة قادمة – أكاديمية تنفّس
                         </td>
                     </tr>
 
                     <!-- Body -->
                     <tr>
-                        <td style="padding:30px; color:#333; font-size:16px; line-height:26px;">
-                            <p>Dear {$registration['full_name']},</p>
+                        <td style="padding:30px; color:#333; font-size:16px; line-height:30px; direction:rtl; text-align:right;">
+                            <p>مرحبًا ' . esc_html($registration['full_name']) . '،</p>
 
-                            <p>This is a reminder about your upcoming session:</p>
+                            <p>هذا تذكير بجلستك القادمة:</p>
 
-                            <div style="background:#f9f9f9; padding:20px; border-radius:8px; margin:20px 0;">
-                                <p style="margin:5px 0;"><strong>Program:</strong> {$session['program_name']}</p>
-                                <p style="margin:5px 0;"><strong>Date:</strong> {$session_date}</p>
-                                <p style="margin:5px 0;"><strong>Time:</strong> {$session_time}</p>
-                                <p style="margin:5px 0;"><strong>Meeting Password:</strong> {$zoom_password}</p>
+                            <div style="background:#f9f9f9; padding:20px; border-radius:8px; margin:20px 0; direction:rtl; text-align:right;">
+                                <p style="margin:5px 0;"><strong>البرنامج:</strong> ' . esc_html($session['program_name']) . '</p>
+                                <p style="margin:5px 0;"><strong>التاريخ:</strong> ' . esc_html($session_date) . '</p>
+                                <p style="margin:5px 0;"><strong>الوقت:</strong> ' . esc_html($session_time) . '</p>
+                                <p style="margin:5px 0;"><strong>كلمة مرور الاجتماع:</strong> ' . esc_html($zoom_password) . '</p>
                             </div>
 
                             <p style="text-align:center; margin:30px 0;">
-                                <a href="{$zoom_link}"
+                                <a href="' . esc_url($zoom_link) . '"
                                    style="display:inline-block; padding:14px 30px;
                                           background:linear-gradient(135deg, #C3DDD2, #6059A6);
                                           color:#fff; text-decoration:none;
                                           border-radius:6px; font-weight:bold; font-size:16px;">
-                                    Join Zoom Meeting
+                                    الانضمام إلى اجتماع Zoom
                                 </a>
                             </p>
 
-                            <p>We look forward to seeing you!</p>
+                            <p>نتطلع لرؤيتك 🤍</p>
 
                             <p style="margin-top:30px;">
-                                Best regards,<br>
-                                <strong>Tanafs Academy Team</strong>
+                                كل الود،<br>
+                                <strong>فريق تنفّس</strong>
                             </p>
                         </td>
                     </tr>
@@ -1574,7 +1574,7 @@ function academy_send_session_email($registration, $session)
                     <tr>
                         <td style="background:#f0f0f0; padding:16px; text-align:center;
                                    font-size:12px; color:#666;">
-                            © 2025 Tanafs Academy. All rights reserved.
+                            هذه رسالة آلية من فريق أكاديمية تنفّس.
                         </td>
                     </tr>
                 </table>
@@ -1582,8 +1582,7 @@ function academy_send_session_email($registration, $session)
         </tr>
     </table>
 </body>
-</html>
-HTML;
+</html>';
 
     return wp_mail($to, $subject, $message);
 }
@@ -2385,16 +2384,16 @@ function academy_send_registration_confirmation($email, $name, $program_id)
         return false;
     }
 
-    $subject = 'Tanafs Academy - Registration Confirmation';
+    $subject = 'تأكيد تسجيلك في البرنامج';
 
-    $message = <<<HTML
+    $message = '
 <!DOCTYPE html>
-<html>
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif;">
+<body style="margin:0; padding:0; background:#f6f6f6; font-family:\'Almarai\', Arial, sans-serif; direction:rtl;">
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6; padding:40px 0;">
         <tr>
             <td align="center">
@@ -2405,25 +2404,26 @@ function academy_send_registration_confirmation($email, $name, $program_id)
                         <td style="background:linear-gradient(135deg, #C3DDD2, #6059A6);
                                    padding:30px 20px; text-align:center;
                                    color:#ffffff; font-size:24px; font-weight:bold;">
-                            Welcome to Tanafs Academy!
+                            تأكيد تسجيلك في البرنامج
                         </td>
                     </tr>
                     <tr>
-                        <td style="padding:30px; color:#333; font-size:16px; line-height:26px;">
-                            <p>Dear {$name},</p>
-                            <p>Thank you for registering for <strong>{$program->program_name}</strong>!</p>
-                            <p>We're excited to have you join our professional training program. You will receive session schedules and Zoom links as they become available.</p>
-                            <p>If you have any questions, please don't hesitate to contact us.</p>
+                        <td style="padding:30px; color:#333; font-size:16px; line-height:30px; direction:rtl; text-align:right;">
+                            <p>مرحبًا ' . esc_html($name) . '،</p>
+                            <p>شكرًا لتسجيلك في برنامج <strong>' . esc_html($program->program_name) . '</strong>.</p>
+                            <p>يسعدنا انضمامك إلى برنامجنا التدريبي المهني.</p>
+                            <p>سيتم تزويدك بمواعيد الجلسات وروابط Zoom فور توفرها.</p>
+                            <p>في حال وجود أي استفسار، لا تتردد في التواصل معنا.</p>
                             <p style="margin-top:30px;">
-                                Best regards,<br>
-                                <strong>Tanafs Academy Team</strong>
+                                كل الود،<br>
+                                <strong>فريق تنفّس 🤍</strong>
                             </p>
                         </td>
                     </tr>
                     <tr>
                         <td style="background:#f0f0f0; padding:16px; text-align:center;
                                    font-size:12px; color:#666;">
-                            © 2025 Tanafs Academy. All rights reserved.
+                            هذه رسالة آلية من فريق أكاديمية تنفّس.
                         </td>
                     </tr>
                 </table>
@@ -2431,8 +2431,7 @@ function academy_send_registration_confirmation($email, $name, $program_id)
         </tr>
     </table>
 </body>
-</html>
-HTML;
+</html>';
 
     return wp_mail($email, $subject, $message);
 }
