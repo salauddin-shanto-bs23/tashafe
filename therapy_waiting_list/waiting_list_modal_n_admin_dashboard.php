@@ -60,17 +60,17 @@ function handle_waiting_list_submission() {
     ]);
 
     // Send gradient-themed HTML email
-	$subject = "You're on the Waiting List – Tashafe";
+	$subject = "أنت الآن في قائمة الانتظار – تنفس";
 
 	$message = '
 	<!DOCTYPE html>
-	<html lang="en">
+	<html lang="ar" dir="rtl">
 	<head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>Tashafe Email</title>
+	<title>تنفس</title>
 	</head>
-	<body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif;">
+	<body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif; direction:rtl;">
 
 	<table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6; padding:40px 0;">
 		<tr>
@@ -82,22 +82,27 @@ function handle_waiting_list_submission() {
 					<!-- Header -->
 					<tr>
 						<td style="background:linear-gradient(135deg, #C3DDD2, #6059A6); padding:24px; text-align:center; color:#ffffff; font-size:24px; font-weight:bold;">
-							Tashafe Waiting List
+							قائمة انتظار تنفس
 						</td>
 					</tr>
 
 					<!-- Body -->
 					<tr>
-						<td style="padding:30px; color:#333; font-size:16px; line-height:26px;">
-							<p style="margin:0 0 16px;">Hi,</p>
+						<td style="padding:30px; color:#333; font-size:16px; line-height:26px; text-align:right;">
+							<p style="margin:0 0 16px;">مرحبًا،</p>
 
 							<p style="margin:0 0 16px;">
-								Thank you for joining the <strong>Tashafe Waiting List</strong>.  
-								We’ve received your interest and will notify you as soon as your issue is ready or your turn arrives.
+								شكرًا لانضمامك إلى قائمة انتظار تنفس.
+								تم استلام طلبك، وسنقوم بإشعارك فور جاهزية حالتك أو عند وصول دورك.
 							</p>
 
-							<p style="margin:0 0 24px;">
-								You are now officially in our queue. If you need any updates, feel free to contact us anytime.
+							<p style="margin:0 0 16px;">
+								أنت الآن رسميًا ضمن قائمة الانتظار لدينا.
+								وفي حال رغبتِ بأي تحديثات، يسعدنا تواصلك معنا في أي وقت.
+							</p>
+
+							<p style="margin:0 0 24px; font-size:14px; color:#666;">
+								مع خالص التقدير،<br>فريق تنفس
 							</p>
 
 							<!-- Button -->
@@ -107,7 +112,7 @@ function handle_waiting_list_submission() {
 										<a href="https://tanafs.com.sa" 
 										   style="display:inline-block; padding:14px 28px; background:linear-gradient(135deg, #C3DDD2, #6059A6); color:#fff; 
 										   text-decoration:none; font-weight:600; border-radius:6px; font-size:16px;">
-											Visit Tashafe.com
+											زيارة موقع تنفس
 										</a>
 									</td>
 								</tr>
@@ -119,7 +124,7 @@ function handle_waiting_list_submission() {
 					<!-- Footer -->
 					<tr>
 						<td style="background:#f0f0f0; padding:16px; text-align:center; font-size:12px; color:#666;">
-							© <?= date("Y"); ?> Tashafe — All Rights Reserved.
+							هذه رسالة آلية من فريق تنفس.
 						</td>
 					</tr>
 
@@ -135,7 +140,7 @@ function handle_waiting_list_submission() {
 
 	$headers = [
 		"Content-Type: text/html; charset=UTF-8",
-		"From: Tashafe <no-reply@tanafs.com.sa>"
+		"From: تنفس <no-reply@tanafs.com.sa>"
 	];
 
 	wp_mail($email, $subject, $message, $headers);
