@@ -13,7 +13,7 @@ function register_retreat_group_cpt()
         ],
         'public'       => true,
         'show_ui'      => true,
-        'show_in_menu' => true,
+        'show_in_menu' => false,
         'menu_icon'    => 'dashicons-palmtree',
         'supports'     => ['title'],
     ]);
@@ -218,11 +218,11 @@ function retreat_group_dashboard_admin_menu()
         7
     );
 
-    // Add Gender Settings submenu
+    // Add Group Display Settings submenu
     add_submenu_page(
         'retreat-dashboard',
-        'Gender Group Settings',
-        'Gender Settings',
+        'Group Display Settings',
+        'Group Display Settings',
         'manage_options',
         'retreat-gender-settings',
         'render_retreat_gender_settings'
@@ -230,7 +230,7 @@ function retreat_group_dashboard_admin_menu()
 }
 
 // --------------------------------------------------
-// RENDER GENDER SETTINGS PAGE
+// RENDER GROUP DISPLAY SETTINGS PAGE
 // --------------------------------------------------
 function render_retreat_gender_settings()
 {
@@ -257,7 +257,7 @@ function render_retreat_gender_settings()
     }
 ?>
     <div class="wrap">
-        <h1>Retreat Gender Group Settings</h1>
+        <h1>Retreat Group Display Settings</h1>
         <p class="description">Configure the cover photo for each retreat group (Male, Women, Teen). These will be displayed on the retreat details page when users view a specific retreat.</p>
 
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -467,7 +467,7 @@ function handle_create_retreat_group()
     // New retreat-specific fields
     $retreat_description = sanitize_textarea_field($_POST['retreat_description'] ?? '');
     $retreat_price_sar   = sanitize_text_field($_POST['retreat_price_sar'] ?? '');
-    $retreat_price_usd   = sanitize_text_field($_POST['retreat_price_usd'] ?? '');
+    $retreat_price_double_sar = sanitize_text_field($_POST['retreat_price_double_sar'] ?? '');
     $package_includes    = sanitize_textarea_field($_POST['package_includes'] ?? '');
 
     $start_date = normalize_retreat_date_value($start_date_raw);
@@ -506,7 +506,7 @@ function handle_create_retreat_group()
     // Save new retreat-specific fields
     update_field('retreat_description', $retreat_description, $post_id);
     update_field('retreat_price_sar', $retreat_price_sar, $post_id);
-    update_field('retreat_price_usd', $retreat_price_usd, $post_id);
+    update_field('retreat_price_double_sar', $retreat_price_double_sar, $post_id);
     update_field('package_includes', $package_includes, $post_id);
 
     // Notify waiting list users
@@ -673,7 +673,7 @@ function handle_edit_retreat_group()
     // New retreat-specific fields
     $retreat_description = sanitize_textarea_field($_POST['retreat_description'] ?? '');
     $retreat_price_sar   = sanitize_text_field($_POST['retreat_price_sar'] ?? '');
-    $retreat_price_usd   = sanitize_text_field($_POST['retreat_price_usd'] ?? '');
+    $retreat_price_double_sar = sanitize_text_field($_POST['retreat_price_double_sar'] ?? '');
     $package_includes    = sanitize_textarea_field($_POST['package_includes'] ?? '');
 
     if (!$group_id) {
@@ -702,7 +702,7 @@ function handle_edit_retreat_group()
     // Update new retreat-specific fields
     update_field('retreat_description', $retreat_description, $group_id);
     update_field('retreat_price_sar', $retreat_price_sar, $group_id);
-    update_field('retreat_price_usd', $retreat_price_usd, $group_id);
+    update_field('retreat_price_double_sar', $retreat_price_double_sar, $group_id);
     update_field('package_includes', $package_includes, $group_id);
 
     wp_send_json_success('Retreat updated successfully!');
@@ -774,7 +774,7 @@ function render_retreat_groups($retreat_type)
         // New retreat-specific fields
         $retreat_description = get_field('retreat_description', $post_id);
         $retreat_price_sar = get_field('retreat_price_sar', $post_id);
-        $retreat_price_usd = get_field('retreat_price_usd', $post_id);
+        $retreat_price_double_sar = get_field('retreat_price_double_sar', $post_id);
         $package_includes = get_field('package_includes', $post_id);
         $retreat_title = get_field('retreat_title', $post_id) ?: get_the_title($post_id);
 
@@ -798,7 +798,7 @@ function render_retreat_groups($retreat_type)
         echo esc_html($retreat_title) . ' <small style="color:#999;margin-left:8px;">(#' . esc_html(get_field('retreat_number', $post_id)) . ')</small>';
         echo '</button>';
         echo '<div class="d-flex align-items-center" style="gap:15px;">';
-        echo '<button class="btn btn-sm edit-retreat" data-id="' . esc_attr($post_id) . '" data-type="' . esc_attr($retreat_type) . '" data-start-date="' . esc_attr($start_date) . '" data-end-date="' . esc_attr($end_date) . '" data-max-participants="' . esc_attr($max_participants) . '" data-trip-destination="' . esc_attr($trip_destination) . '" data-retreat-description="' . esc_attr($retreat_description) . '" data-retreat-price-sar="' . esc_attr($retreat_price_sar) . '" data-retreat-price-usd="' . esc_attr($retreat_price_usd) . '" data-package-includes="' . esc_attr($package_includes) . '" title="Edit Retreat" data-bs-toggle="modal" data-bs-target="#editRetreatModal" style="padding:4px 12px;font-size:12px;background:#635ba3;border:none;color:white;border-radius:4px;"><i class="bi bi-pencil"></i> Edit</button>';
+        echo '<button class="btn btn-sm edit-retreat" data-id="' . esc_attr($post_id) . '" data-type="' . esc_attr($retreat_type) . '" data-start-date="' . esc_attr($start_date) . '" data-end-date="' . esc_attr($end_date) . '" data-max-participants="' . esc_attr($max_participants) . '" data-trip-destination="' . esc_attr($trip_destination) . '" data-retreat-description="' . esc_attr($retreat_description) . '" data-retreat-price-sar="' . esc_attr($retreat_price_sar) . '" data-retreat-price-double-sar="' . esc_attr($retreat_price_double_sar) . '" data-package-includes="' . esc_attr($package_includes) . '" title="Edit Retreat" data-bs-toggle="modal" data-bs-target="#editRetreatModal" style="padding:4px 12px;font-size:12px;background:#635ba3;border:none;color:white;border-radius:4px;"><i class="bi bi-pencil"></i> Edit</button>';;
         echo '<button class="btn btn-sm btn-danger delete-retreat" data-id="' . esc_attr($post_id) . '" data-type="' . esc_attr($retreat_type) . '" title="Delete Retreat" style="padding:4px 12px;font-size:12px;margin-right:10px;"><i class="bi bi-trash"></i> Delete</button>';
         echo '</div>';
         echo '</h2>';
@@ -810,12 +810,12 @@ function render_retreat_groups($retreat_type)
         echo '<p><strong>Max Participants:</strong> ' . esc_html($max_participants) . '</p>';
 
         // Display new retreat-specific fields
-        if ($retreat_description || $retreat_price_sar || $retreat_price_usd || $package_includes) {
+        if ($retreat_description || $retreat_price_sar || $retreat_price_double_sar || $package_includes) {
             echo '<hr style="margin:15px 0;border-color:#e0e0e0;">';
             echo '<h6 style="color:#6059A6;margin-bottom:10px;">Retreat Package Details</h6>';
             if ($retreat_description) echo '<p><strong>Description:</strong> ' . nl2br(esc_html($retreat_description)) . '</p>';
-            if ($retreat_price_sar) echo '<p><strong>Price (SAR):</strong> ' . esc_html($retreat_price_sar) . ' SAR</p>';
-            if ($retreat_price_usd) echo '<p><strong>Price (USD):</strong> $' . esc_html($retreat_price_usd) . '</p>';
+            if ($retreat_price_sar) echo '<p><strong>Single Room Price:</strong> ' . esc_html($retreat_price_sar) . ' SAR</p>';
+            if ($retreat_price_double_sar) echo '<p><strong>Double Room Price:</strong> ' . esc_html($retreat_price_double_sar) . ' SAR</p>';
             if ($package_includes) {
                 echo '<p><strong>Package Includes:</strong></p><ul>';
                 $items = explode("\n", $package_includes);
@@ -846,7 +846,7 @@ function render_retreat_groups($retreat_type)
             echo '<h5>Registered Participants (' . count($members) . ')</h5>';
             echo '<table class="table table-sm table-bordered">';
             echo '<thead class="table-light">';
-            echo '<tr><th>#</th><th>Name</th><th>Email</th><th>Birth Date</th><th>Phone</th><th>Country</th><th>Passport</th><th>Registered</th><th>Questionnaire</th></tr>';
+            echo '<tr><th>#</th><th>Name</th><th>Email</th><th>Birth Date</th><th>Phone</th><th>Country</th><th>Package</th><th>Passport</th><th>Registered</th><th>Questionnaire</th></tr>';
             echo '</thead><tbody>';
 
             $i = 1;
@@ -857,6 +857,8 @@ function render_retreat_groups($retreat_type)
                 $birth_date = get_user_meta($member->ID, 'birth_date', true);
                 $phone = get_user_meta($member->ID, 'phone', true);
                 $country = get_user_meta($member->ID, 'country', true);
+                $package_type = get_user_meta($member->ID, 'package_type', true);
+                $package_display = $package_type === 'single' ? 'Single Room' : ($package_type === 'double' ? 'Double Room' : 'N/A');
                 $passport = get_user_meta($member->ID, 'passport_file', true);
                 $reg_date = date('Y-m-d', strtotime($member->user_registered));
 
@@ -867,6 +869,7 @@ function render_retreat_groups($retreat_type)
                 echo '<td>' . esc_html($birth_date) . '</td>';
                 echo '<td>' . esc_html($phone) . '</td>';
                 echo '<td>' . esc_html($country) . '</td>';
+                echo '<td><span style="font-weight:600;color:#6059A6;">' . esc_html($package_display) . '</span></td>';
                 echo '<td>' . ($passport ? '<a href="' . esc_url($passport) . '" target="_blank">View</a>' : 'N/A') . '</td>';
                 echo '<td>' . esc_html($reg_date) . '</td>';
                 echo '<td><button class="btn btn-sm btn-info view-questionnaire-answers" data-user-id="' . $member->ID . '" data-user-name="' . esc_attr($full_name) . '">View Answers</button></td>';
@@ -965,12 +968,12 @@ function render_retreat_dashboard()
                             <div class="col-md-6">
                                 <h6 style="color:#6059A6;margin-bottom:15px;border-bottom:1px solid #e0e0e0;padding-bottom:10px;">Package Details</h6>
                                 <div class="mb-3">
-                                    <label>Price (SAR)</label>
-                                    <input type="text" name="retreat_price_sar" class="form-control" placeholder="e.g., 4800">
+                                    <label>Single Room Price (SAR)</label>
+                                    <input type="text" name="retreat_price_sar" class="form-control" placeholder="e.g., 7600">
                                 </div>
                                 <div class="mb-3">
-                                    <label>Price (USD)</label>
-                                    <input type="text" name="retreat_price_usd" class="form-control" placeholder="e.g., 410">
+                                    <label>Double Room Price (SAR)</label>
+                                    <input type="text" name="retreat_price_double_sar" class="form-control" placeholder="e.g., 6970">
                                 </div>
                                 <div class="mb-3">
                                     <label>Location</label>
@@ -1125,12 +1128,12 @@ Wellness Activities</textarea>
                             <div class="col-md-6">
                                 <h6 style="color:#6059A6;margin-bottom:15px;border-bottom:1px solid #e0e0e0;padding-bottom:10px;">Package Details</h6>
                                 <div class="mb-3">
-                                    <label>Price (SAR)</label>
-                                    <input type="text" name="retreat_price_sar" id="edit_retreat_price_sar" class="form-control" placeholder="e.g., 4800">
+                                    <label>Single Room Price (SAR)</label>
+                                    <input type="text" name="retreat_price_sar" id="edit_retreat_price_sar" class="form-control" placeholder="e.g., 7600">
                                 </div>
                                 <div class="mb-3">
-                                    <label>Price (USD)</label>
-                                    <input type="text" name="retreat_price_usd" id="edit_retreat_price_usd" class="form-control" placeholder="e.g., 410">
+                                    <label>Double Room Price (SAR)</label>
+                                    <input type="text" name="retreat_price_double_sar" id="edit_retreat_price_double_sar" class="form-control" placeholder="e.g., 6970">
                                 </div>
                                 <div class="mb-3">
                                     <label>Location</label>
@@ -1171,7 +1174,7 @@ Wellness Activities</textarea>
                 document.getElementById('edit_trip_destination').value = this.dataset.tripDestination || '';
                 document.getElementById('edit_retreat_description').value = this.dataset.retreatDescription || '';
                 document.getElementById('edit_retreat_price_sar').value = this.dataset.retreatPriceSar || '';
-                document.getElementById('edit_retreat_price_usd').value = this.dataset.retreatPriceUsd || '';
+                document.getElementById('edit_retreat_price_double_sar').value = this.dataset.retreatPriceDoubleSar || '';
                 document.getElementById('edit_package_includes').value = this.dataset.packageIncludes || '';
             });
         });
