@@ -1491,29 +1491,32 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
     // ---- APPROVAL EMAIL ----
     if ($new_status === 'publish') {
 
-        $subject = "Your article has been approved!";
+        $subject = "تم اعتماد مقالك 🎉";
         $post_link = get_permalink($post->ID);
 
         $message = "
-        <div style='font-family: Arial, sans-serif; background:#ffffff; padding:30px; border-radius:10px; border:1px solid #eee; max-width:600px; margin:20px auto;'>
+        <div dir='rtl' style='font-family: Arial, sans-serif; background:#ffffff; padding:30px; border-radius:10px; border:1px solid #eee; max-width:600px; margin:20px auto; direction:rtl; text-align:right;'>
 
             <div style='background:$secondary; color:#fff; padding:18px; border-radius:8px 8px 0 0;'>
-                <h2 style='margin:0; font-weight:600;'>Your Article is Approved 🎉</h2>
+                <h2 style='margin:0; font-weight:600;'>تم اعتماد مقالك 🎉</h2>
             </div>
 
             <div style='padding:25px; color:#333;'>
-                <p>Hello,</p>
-                <p>Your article titled <strong>{$post->post_title}</strong> has been <strong style='color:$secondary;'>approved</strong> and is now live on our website.</p>
+                <p>مرحبًا،</p>
+                <p>يسعدنا إبلاغك بأن مقالك بعنوان</p>
+                <p><strong>&quot;{$post->post_title}&quot;</strong></p>
+                <p>قد تم اعتماده، وهو الآن منشور على موقعنا.</p>
+                <p>يمكنك الاطلاع عليه من خلال الرابط المرفق.</p>
 
-                <a href='$post_link' style='display:inline-block; margin-top:20px; padding:12px 22px; background:$secondary; color:white; border-radius:6px; text-decoration:none; transition:0.3s;'>
-                    View Published Article
+                <a href='$post_link' style='display:inline-block; margin-top:20px; padding:12px 22px; background:$secondary; color:white; border-radius:6px; text-decoration:none;'>
+                    اطّلع على المقال
                 </a>
 
-                <p style='margin-top:30px; font-size:13px; color:#666;'>Thank you for contributing to <strong>" . get_bloginfo('name') . "</strong>.</p>
+                <p style='margin-top:30px; font-size:13px; color:#666;'>شكرًا لمساهمتك القيّمة في تنفّس 🤍</p>
             </div>
 
             <div style='background:$primary; padding:12px; text-align:center; border-radius:0 0 8px 8px; font-size:12px; color:#333;'>
-                This is an automated email from " . get_bloginfo('name') . ".
+                هذه رسالة آلية من فريق تنفّس.
             </div>
         </div>";
 
@@ -1524,25 +1527,27 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
     // ---- REJECTION EMAIL ----
     if ($new_status === 'trash' && $old_status === 'pending') {
 
-        $subject = "Your article submission has been rejected";
+        $subject = "تحديث بخصوص مقالك";
 
         $message = "
-        <div style='font-family: Arial, sans-serif; background:#ffffff; padding:30px; border-radius:10px; border:1px solid #eee; max-width:600px; margin:20px auto;'>
+        <div dir='rtl' style='font-family: Arial, sans-serif; background:#ffffff; padding:30px; border-radius:10px; border:1px solid #eee; max-width:600px; margin:20px auto; direction:rtl; text-align:right;'>
 
             <div style='background:$secondary; color:#fff; padding:18px; border-radius:8px 8px 0 0;'>
-                <h2 style='margin:0; font-weight:600;'>Submission Update</h2>
+                <h2 style='margin:0; font-weight:600;'>تحديث بخصوص مقالك</h2>
             </div>
 
             <div style='padding:25px; color:#333;'>
-                <p>Hello,</p>
-                <p>Your article titled <strong>{$post->post_title}</strong> has been <strong style='color:red;'>rejected</strong> and was not published.</p>
-                <p>You may review your content and submit again.</p>
+                <p>مرحبًا،</p>
+                <p>نود إبلاغك بأن مقالك بعنوان</p>
+                <p><strong>&quot;{$post->post_title}&quot;</strong></p>
+                <p>لم يتم اعتماده في هذه المرحلة، وبالتالي لم يتم نشره.</p>
+                <p>يمكنك مراجعة المحتوى وإعادة إرساله مرة أخرى متى رغبت.</p>
 
-                <p style='margin-top:30px; font-size:13px; color:#666;'>We appreciate your effort and encourage you to try again.</p>
+                <p style='margin-top:30px; font-size:13px; color:#666;'>نقدّر جهدك ونسعد بمحاولتك مجددًا 🤍</p>
             </div>
 
             <div style='background:$primary; padding:12px; text-align:center; border-radius:0 0 8px 8px; font-size:12px; color:#333;'>
-                This is an automated email from " . get_bloginfo('name') . ".
+                هذه رسالة آلية من فريق تنفّس-
             </div>
         </div>";
 
