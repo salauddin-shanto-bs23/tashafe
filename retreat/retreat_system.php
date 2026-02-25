@@ -956,7 +956,7 @@ function ajax_join_retreat_waiting_list()
     // Send waiting list email with Therapy Group style
     wp_mail(
         $email,
-        'You\'re on the Waiting List – Tashafe',
+        'أنت الآن في قائمة الانتظار – تنفس',
         get_retreat_waiting_email($full_name),
         ['Content-Type: text/html; charset=UTF-8']
     );
@@ -1097,31 +1097,32 @@ function get_retreat_waiting_email($full_name)
     ob_start();
 ?>
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="ar" dir="rtl">
 
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Tashafe Retreat Waiting List</title>
+        <title>أنت الآن في قائمة الانتظار – تنفس</title>
     </head>
 
-    <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif;">
+    <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif; direction:rtl;">
 
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6; padding:40px 0;">
 
             <!-- Body -->
             <tr>
-                <td style="padding:30px; color:#333; font-size:16px; line-height:26px;">
+                <td style="padding:30px; color:#333; font-size:16px; line-height:30px; direction:rtl; text-align:right;">
 
-                    <p>Hi <?php echo esc_html($full_name); ?>,</p>
+                    <p>مرحبًا،</p>
 
                     <p>
-                        Thank you for joining the <strong>Tashafe Retreat Waiting List</strong>.
-                        We've received your interest and will notify you as soon as a spot becomes available.
+                        شكرًا لانضمامك إلى قائمة انتظار تنفس.
+                        تم استلام طلبك، وسنقوم بإشعارك فور جاهزية حالتك أو عند وصول دورك.
                     </p>
 
                     <p>
-                        You are now officially in our queue. If you need any updates, feel free to contact us anytime.
+                        أنت الآن رسميًا ضمن قائمة الانتظار لدينا.
+                        وفي حال رغبتِ بأي تحديثات، يسعدنا تواصلك معنا في أي وقت.
                     </p>
 
                     <!-- Button -->
@@ -1134,7 +1135,7 @@ function get_retreat_waiting_email($full_name)
                                                   color:#fff; text-decoration:none;
                                                   font-weight:600; border-radius:6px;
                                                   font-size:16px;">
-                                    Visit Tanafs.com.sa
+                                    زيارة موقع تنفس
                                 </a>
                             </td>
                         </tr>
@@ -1147,14 +1148,10 @@ function get_retreat_waiting_email($full_name)
             <tr>
                 <td style="background:#f0f0f0; padding:16px; text-align:center;
                                    font-size:12px; color:#666;">
-                    © <?php echo date("Y"); ?> Tashafe — All Rights Reserved.
+                    مع خالص التقدير، فريق تنفس
                 </td>
             </tr>
 
-        </table>
-
-        </td>
-        </tr>
         </table>
 
     </body>
