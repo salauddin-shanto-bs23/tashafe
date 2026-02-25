@@ -533,17 +533,17 @@ function notify_retreat_waiting_list_users($retreat_type)
         return;
     }
 
-    $subject = "New " . ucfirst($retreat_type) . " Retreat Available – Tashafe";
+    $subject = "رحلة جديدة لليافعين متاحة الآن – تنفس";
 
     foreach ($users as $user) {
         $message = '
         <!DOCTYPE html>
-        <html lang="en">
+        <html lang="ar" dir="rtl">
         <head>
             <meta charset="UTF-8">
-            <title>Tashafe Retreat</title>
+            <title>تنفس</title>
         </head>
-        <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif;">
+        <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif; direction:rtl;">
 
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6; padding:40px 0;">
             <tr>
@@ -558,24 +558,30 @@ function notify_retreat_waiting_list_users($retreat_type)
                             <td style="background:linear-gradient(135deg, #C3DDD2, #6059A6);
                                        padding:24px; text-align:center;
                                        color:#ffffff; font-size:24px; font-weight:bold;">
-                                Tashafe Retreats
+                                رحلات تنفس
                             </td>
                         </tr>
 
                         <!-- Body -->
                         <tr>
-                            <td style="padding:30px; color:#333; font-size:16px; line-height:26px;">
+                            <td style="padding:30px; color:#333; font-size:16px; line-height:26px; text-align:right;">
 
-                                <p>Hi ' . esc_html($user->full_name) . ',</p>
+                                <p>مرحبًا ' . esc_html($user->full_name) . '،</p>
+
+                                <p>أخبار جميلة ✨</p>
+
+                                <p>تم إطلاق رحلة جديدة لليافعين.</p>
 
                                 <p>
-                                    Great news! A new <strong>' . ucfirst($retreat_type) . ' Retreat</strong> has just been created.
+                                    وبما أنك كنت ضمن قائمة الانتظار، يمكنك الآن التسجيل في الرحلة.
+                                    الأماكن محدودة، لذا ننصح بالتسجيل في أقرب وقت ممكن.
                                 </p>
 
-                                <p>
-                                    Since you were on our waiting list, you can now register for this retreat.
-                                    Spots are limited, so we encourage you to register as soon as possible.
+                                <p style="font-size:15px; color:#555;">
+                                    بانتظار انضمامكم وكلنا شوق 🤍
                                 </p>
+
+                                <p style="font-size:14px; color:#666;">فريق تنفس</p>
 
                                 <!-- Button -->
                                 <table cellspacing="0" cellpadding="0" style="margin-top:20px;">
@@ -587,7 +593,7 @@ function notify_retreat_waiting_list_users($retreat_type)
                                                       color:#fff; text-decoration:none;
                                                       font-weight:600; border-radius:6px;
                                                       font-size:16px;">
-                                                Register Now
+                                                سجّل الآن
                                             </a>
                                         </td>
                                     </tr>
