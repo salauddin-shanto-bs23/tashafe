@@ -2459,7 +2459,7 @@ add_action('wp_footer', function () {
                             // Retry for transient errors only
                             if (retryCount < maxRetries && !errorMsg.includes('failed with PayTabs')) {
                                 console.log('Retrying in ' + retryDelay + 'ms...');
-                                $('#verification-status').text('Verifying... (attempt ' + (retryCount + 1) + ')');
+                                $('#verification-status').text('Verifying your payment...');
                                 setTimeout(verifyPayment, retryDelay);
                             } else {
                                 $('#payment-verification-overlay').remove();

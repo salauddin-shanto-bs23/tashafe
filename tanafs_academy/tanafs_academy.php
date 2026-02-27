@@ -2763,11 +2763,18 @@ function ajax_academy_verify_payment()
                 wp_send_json_error($reg_result['message']);
             }
             return;
+        } else {
+            // PayTabs confirmed the payment was declined / failed
+            $booking_data['payment_status'] = 'failed';
+            $booking_data['booking_state']  = 'failed';
+            academy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
+            wp_send_json_error('Payment was not completed. Please try again with a valid card.');
+            return;
         }
     }
 
-    // ── Case 4: Payment still pending / failed ──────────────────────────────
-    wp_send_json_error('Payment was not confirmed. If you completed payment, please contact support with your transaction reference.');
+    // ── Case 4: No transaction reference — payment was never properly initiated
+    wp_send_json_error('Payment was not completed. Please fill out the form again to try another payment.');
 }
 }
 
@@ -2835,7 +2842,7 @@ function academy_complete_registration($booking_data, $booking_token)
 
 // ────────────────────────────────────────────────────────────────────────────
 // IPN (Instant Payment Notification) handler for academy bookings.
-// Hooks into template_redirect (priority 4 — before retreat handler at 5)
+// Hooks into template_redirect (priority 4 — before therapy handler at 5 and retreat handler at 10)
 // and processes only cart_ids prefixed with 'academy_'.
 // ────────────────────────────────────────────────────────────────────────────
 

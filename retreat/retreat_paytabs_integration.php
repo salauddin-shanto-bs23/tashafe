@@ -314,11 +314,19 @@ function paytabs_handle_callback() {
         }
         
         $booking_token = sanitize_text_field($data['cart_id']);
+
+        // Skip cart IDs that belong to other subsystems (therapy_, academy_, etc.)
+        // Their own IPN handlers (hooked at a lower priority number) will process these.
+        if (strpos($booking_token, 'therapy_') === 0 || strpos($booking_token, 'academy_') === 0) {
+            error_log('[Retreat IPN] Skipping non-retreat cart_id: ' . $booking_token);
+            return; // Let the appropriate handler process this
+        }
+
         $cart_key = 'retreat_' . $booking_token;
-        $booking_data = get_transient($cart_key);
+        $booking_data = retreat_booking_get($cart_key);
         
         if (!$booking_data) {
-            error_log('IPN ERROR: Transient not found for token: ' . $booking_token);
+            error_log('IPN ERROR: Booking data not found for token: ' . $booking_token);
             wp_send_json(['status' => 'error', 'message' => 'Booking data not found']);
             exit;
         }
@@ -382,8 +390,8 @@ function paytabs_handle_callback() {
             $booking_data['failure_reason'] = $data['payment_result']['response_message'] ?? 'Unknown';
         }
         
-        // Save updated transient with 24-hour TTL (increased for recovery window)
-        set_transient($cart_key, $booking_data, 86400);
+        // Save updated booking data — 24-hour recovery window
+        retreat_booking_save($cart_key, $booking_data, DAY_IN_SECONDS);
         
         // Respond to PayTabs
         wp_send_json(['status' => 'received']);
@@ -679,13 +687,65 @@ function save_retreat_questionnaire_answers($user_id, $questionnaire_json, $book
 }
 
 // ============================================================================
+// PERSISTENT BOOKING STORAGE HELPERS
+// ============================================================================
+// Mirrors therapy_booking_* and academy_booking_* helpers.
+// Uses wp_options as a durable fallback so a Redis/Memcached cache flush
+// between payment initiation and the PayTabs return does not lose booking data.
+// Option name prefix: '_rbp_' (retreat booking persistent)
+
+if (!function_exists('retreat_booking_save')) {
+function retreat_booking_save($transient_key, $booking_data, $ttl = null) {
+    if ($ttl === null) {
+        $ttl = 4 * HOUR_IN_SECONDS;
+    }
+    set_transient($transient_key, $booking_data, $ttl);
+    $option_name = '_rbp_' . $transient_key;
+    $stored = [
+        'data'    => $booking_data,
+        'expires' => time() + $ttl,
+    ];
+    update_option($option_name, $stored, false); // non-autoloaded
+    error_log('[Retreat Booking] Saved persistent backup: ' . $option_name);
+}
+}
+
+if (!function_exists('retreat_booking_get')) {
+function retreat_booking_get($transient_key) {
+    $data = get_transient($transient_key);
+    if ($data !== false) {
+        return $data;
+    }
+    $option_name = '_rbp_' . $transient_key;
+    $stored = get_option($option_name, false);
+    if ($stored && isset($stored['data'], $stored['expires'])) {
+        if ($stored['expires'] > time()) {
+            error_log('[Retreat Booking] Transient miss — recovered from persistent store: ' . $option_name);
+            set_transient($transient_key, $stored['data'], $stored['expires'] - time());
+            return $stored['data'];
+        } else {
+            delete_option($option_name);
+        }
+    }
+    return false;
+}
+}
+
+if (!function_exists('retreat_booking_delete')) {
+function retreat_booking_delete($transient_key) {
+    delete_transient($transient_key);
+    delete_option('_rbp_' . $transient_key);
+}
+}
+
+// ============================================================================
 // SECTION 2: RETREAT-SPECIFIC AJAX HANDLERS
 // ============================================================================
 
 /**
  * AJAX Handler: Save retreat booking data to transient before payment
  * 
- * Generates unique token, stores all form data temporarily (1 hour)
+ * Generates unique token, stores all form data temporarily (4 hours)
  * Returns token to frontend for payment initiation
  */
 function ajax_save_retreat_booking_data() {
@@ -737,9 +797,9 @@ function ajax_save_retreat_booking_data() {
         }
     }
     
-    // Store in transient (1 hour expiry)
+    // Store booking data — transient + persistent fallback (4-hour TTL)
     $transient_key = 'retreat_' . $booking_token;
-    set_transient($transient_key, $booking_data, 3600);
+    retreat_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
     
     wp_send_json_success([
         'message' => 'Booking data saved successfully',
@@ -769,9 +829,9 @@ function ajax_initiate_retreat_payment() {
         return;
     }
     
-    // Retrieve booking data from transient
+    // Retrieve booking data — transient with persistent fallback
     $transient_key = 'retreat_' . $booking_token;
-    $booking_data = get_transient($transient_key);
+    $booking_data = retreat_booking_get($transient_key);
     
     if (!$booking_data) {
         wp_send_json_error(['message' => 'Booking session expired. Please start over.']);
@@ -806,9 +866,9 @@ function ajax_initiate_retreat_payment() {
     );
     
     if ($result['success']) {
-        // Update transient with payment reference
+        // Update booking data with payment reference — persist durably
         $booking_data['tran_ref'] = $result['tran_ref'];
-        set_transient($transient_key, $booking_data, 3600);
+        retreat_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
         
         wp_send_json_success([
             'redirect_url' => $result['redirect_url'],
@@ -843,9 +903,18 @@ function ajax_verify_retreat_payment_status() {
         return;
     }
     
-    // Retrieve booking data
+    // Guard: retreat tokens are raw hex (no prefix). Tokens from other systems
+    // (therapy_, academy_) have their own verify handlers — ignore them silently
+    // so the retreat UI does not display a misleading error to the user.
+    if (strpos($booking_token, 'therapy_') === 0 || strpos($booking_token, 'academy_') === 0) {
+        error_log('[Retreat Verify] Ignoring non-retreat token: ' . substr($booking_token, 0, 20));
+        wp_send_json_success(['payment_verified' => false, 'status' => 'not_applicable']);
+        return;
+    }
+    
+    // Retrieve booking data — transient with persistent fallback
     $transient_key = 'retreat_' . $booking_token;
-    $booking_data = get_transient($transient_key);
+    $booking_data = retreat_booking_get($transient_key);
     
     if (!$booking_data) {
         wp_send_json_error(['message' => 'Booking session expired']);
@@ -870,6 +939,21 @@ function ajax_verify_retreat_payment_status() {
     if (isset($booking_data['payment_status']) && $booking_data['payment_status'] === 'completed') {
         error_log('VERIFY: Payment already marked as completed in transient');
         $payment_verified = true;
+
+        // Fallback: IPN confirmed payment but booking creation failed (user_id not set)
+        if (empty($booking_data['user_id']) && ($booking_data['booking_state'] ?? '') !== 'booking_confirmed') {
+            error_log('VERIFY: payment_status=completed but user_id missing — attempting fallback booking creation');
+            $fallback_result = process_retreat_booking_from_ipn($booking_data, $booking_token);
+            if ($fallback_result['success']) {
+                $booking_data['user_id'] = $fallback_result['user_id'];
+                $booking_data['booking_state'] = 'booking_confirmed';
+                $booking_data['booking_created_at'] = current_time('mysql');
+                retreat_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
+                error_log('VERIFY: Fallback booking created for user ID: ' . $fallback_result['user_id']);
+            } else {
+                error_log('VERIFY ERROR: Fallback booking creation failed: ' . $fallback_result['message']);
+            }
+        }
     } 
     // Verify directly with PayTabs API
     elseif (isset($booking_data['tran_ref']) && !empty($booking_data['tran_ref'])) {
@@ -906,14 +990,14 @@ function ajax_verify_retreat_payment_status() {
                 error_log('VERIFY: User already exists in transient: ' . $booking_data['user_id']);
             }
             
-            // Save updated transient
-            set_transient($transient_key, $booking_data, 86400);
+            // Save updated booking data
+            retreat_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
             
         } else {
             // Payment failed according to PayTabs
             error_log('VERIFY: PayTabs says payment FAILED: ' . ($verification['message'] ?? 'unknown'));
             $booking_data['payment_status'] = 'failed';
-            set_transient($transient_key, $booking_data, 86400);
+            retreat_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
             
             wp_send_json_error([
                 'payment_verified' => false,
@@ -993,8 +1077,8 @@ function ajax_complete_retreat_registration() {
             $booking_token = sanitize_text_field($_POST['token'] ?? '');
             if (!empty($booking_token)) {
                 $transient_key = 'retreat_' . $booking_token;
-                $booking_data = get_transient($transient_key);
-                // If transient exists and payment is completed, allow the submission
+                $booking_data = retreat_booking_get($transient_key);
+                // If booking data exists and payment is completed, allow the submission
                 if ($booking_data && $booking_data['payment_status'] === 'completed') {
                     $nonce_valid = true;
                     error_log('QUESTIONNAIRE: Allowing submission based on valid booking token');
@@ -1018,9 +1102,9 @@ function ajax_complete_retreat_registration() {
         return;
     }
     
-    // Retrieve booking data
+    // Retrieve booking data — transient with persistent fallback
     $transient_key = 'retreat_' . $booking_token;
-    $booking_data = get_transient($transient_key);
+    $booking_data = retreat_booking_get($transient_key);
     
     if (!$booking_data) {
         wp_send_json_error(['message' => 'Booking session expired']);
@@ -1111,7 +1195,7 @@ function ajax_complete_retreat_registration() {
     // UPDATE BOOKING STATE
     // ============================================
     $booking_data['booking_state'] = 'fully_completed';
-    set_transient($transient_key, $booking_data, 86400);
+    retreat_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
     
     // ============================================
     // AUTO-LOGIN THE USER
@@ -1152,14 +1236,14 @@ add_action('wp_ajax_nopriv_complete_retreat_registration', 'ajax_complete_retrea
 function handle_retreat_payment_callback($callback_data) {
     if (isset($callback_data['cart_id'])) {
         $transient_key = 'retreat_' . $callback_data['cart_id'];
-        $booking_data = get_transient($transient_key);
+        $booking_data = retreat_booking_get($transient_key);
         
         if ($booking_data) {
             $booking_data['payment_callback'] = $callback_data;
             $booking_data['payment_status'] = ($callback_data['payment_result']['response_status'] === 'A') 
                 ? 'completed' 
                 : 'failed';
-            set_transient($transient_key, $booking_data, 3600);
+            retreat_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
         }
     }
 }
@@ -1220,12 +1304,12 @@ function paytabs_render_return_page() {
             // Update transient with payment status
             if (!empty($cart_id)) {
                 $transient_key = 'retreat_' . $cart_id;
-                $booking_data = get_transient($transient_key);
+                $booking_data = retreat_booking_get($transient_key);
                 
                 if ($booking_data) {
                     $booking_data['payment_status'] = 'completed';
                     $booking_data['payment_verification'] = $verification;
-                    set_transient($transient_key, $booking_data, 3600);
+                    retreat_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
                 }
             }
         } else {
