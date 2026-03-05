@@ -938,6 +938,12 @@ function render_therapy_registration_form()
                                 // Arabic is default language (no /ar/ prefix); English uses /en/ prefix
                                 window.location.href = data.data.redirect_url || (isRtl ? '/thank-you-arabic/' : '/en/thank-you/');
                             }, 1500);
+                        } else if (!data.success && data.data?.code === 'session_not_found') {
+                            // Booking session lost — guide user to re-register
+                            setStatus(data.data?.message || (isRtl ? 'انتهت جلسة الحجز. يرجى ملء النموذج مرة أخرى.' : 'Booking session not found. Please fill the form again.'), true);
+                            payBtn.style.display = 'inline-block';
+                            payBtn.disabled = false;
+                            retryBtn.style.display = 'none';
                         } else {
                             setStatus(data.data?.message || messages.error, true);
                             payBtn.style.display = 'inline-block';
@@ -1479,6 +1485,11 @@ function render_therapy_registration_form()
                             // Arabic is default language (no /ar/ prefix); English uses /en/ prefix
                             window.location.href = data.data.redirect_url || (isRtl ? window.location.origin + '/thank-you-arabic/' : window.location.origin + '/en/thank-you/');
                         }, 1500);
+                    } else if (data.success && (data.data.status === 'failed' || data.data.status === 'declined' || data.data.payment_status === 'failed' || data.data.payment_status === 'declined')) {
+                        showAlert(data.data?.message || (isRtl ? 'لم يكتمل الدفع. يرجى المحاولة بطاقة صالحة.' : 'Payment was not completed. Please try again with a valid card.'), 'error');
+                        submitBtn.disabled = false;
+                        submitBtn.classList.remove('loading');
+                        submitBtn.textContent = messages.continuePayment;
                     } else if (data.success && (data.data.status === 'pending_payment' || data.data.payment_status === 'pending')) {
                         showAlert(isRtl ? 'الدفع قيد الانتظار. يرجى إكمال عملية الدفع.' : 'Payment is pending. Please complete the payment process.', 'error');
                         submitBtn.disabled = false;

@@ -412,7 +412,13 @@ function ajax_verify_therapy_payment_status() {
     $booking_data = therapy_booking_get($transient_key);
     
     if (!$booking_data) {
-        wp_send_json_error(['message' => 'Booking session not found or expired']);
+        error_log('[Therapy Verify] Booking data not found for token: ' . substr($booking_token, 0, 20) . '... Transient key: ' . $transient_key);
+        // Check if a user was already created for this token via IPN (search by tran_ref in user meta)
+        // This handles the edge case where the booking option was cleared but IPN already processed
+        wp_send_json_error([
+            'message' => 'Your booking session could not be found. This may be because the session expired or a technical issue occurred. Please fill out the registration form again or contact support if payment was deducted.',
+            'code'    => 'session_not_found',
+        ]);
         return;
     }
     
@@ -556,10 +562,20 @@ function ajax_verify_therapy_payment_status() {
     }
     
     // Payment still pending or failed
+    $current_state  = $booking_data['booking_state'] ?? 'pending_payment';
+    $current_status = $booking_data['payment_status'] ?? 'pending';
+
+    // Provide a clear message based on actual state
+    if (in_array($current_state, ['failed', 'declined']) || in_array($current_status, ['failed', 'declined'])) {
+        $status_message = 'Payment was not completed. Please try again with a valid card.';
+    } else {
+        $status_message = 'Waiting for payment confirmation...';
+    }
+
     wp_send_json_success([
-        'status'        => $booking_data['booking_state'] ?? 'pending_payment',
-        'payment_status'=> $booking_data['payment_status'] ?? 'pending',
-        'message'       => 'Waiting for payment confirmation...',
+        'status'        => $current_state,
+        'payment_status'=> $current_status,
+        'message'       => $status_message,
         'debug' => [
             'booking_type' => $booking_data['booking_type'] ?? 'unknown',
             'group_id' => $booking_data['group_id'] ?? 'NONE',
