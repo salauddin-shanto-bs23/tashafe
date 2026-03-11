@@ -2994,14 +2994,14 @@ add_action('wp_footer', function () {
             // Function to initiate payment
             function initiateRetreatPayment(token, submitBtn) {
                 $.post(RETREAT_AJAX.url, {
-                    action: 'initiate_retreat_payment',
+                    action: 'tanafs_initiate_retreat_payment',
                     token: token,
                     nonce: RETREAT_AJAX.nonce
                 }, function(response) {
-                    if (response.success && response.data.redirect_url) {
-                        console.log('Payment initiated, redirecting to PayTabs...');
-                        // Redirect to PayTabs payment page
-                        window.location.href = response.data.redirect_url;
+                    if (response.success && response.data.redirect_url && response.data.params) {
+                        console.log('Payment initiated, redirecting to APS...');
+                        // Auto-submit form to redirect to APS payment page
+                        tanafsRedirectToAPS(response.data.redirect_url, response.data.params);
                     } else {
                         const errorMsg = (response.data && response.data.message) ? response.data.message : 
                                        (typeof response.data === 'string' ? response.data : 'Unknown error');
@@ -3012,6 +3012,25 @@ add_action('wp_footer', function () {
                     alert('Payment gateway error. Please try again.');
                     submitBtn.prop('disabled', false).html('Book Your Spot <span style="font-size:18px;">📅</span>');
                 });
+            }
+
+            // APS Payment redirect helper
+            function tanafsRedirectToAPS(url, params) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = url;
+                form.style.display = 'none';
+                
+                Object.keys(params).forEach(function(key) {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = key;
+                    input.value = params[key];
+                    form.appendChild(input);
+                });
+                
+                document.body.appendChild(form);
+                form.submit();
             }
 
             // Back from registration to details
@@ -4164,4 +4183,209 @@ function render_retreat_event_cards()
     </script>
 <?php
     return ob_get_clean();
+}
+
+// ============================================================================
+// IPN FULFILLMENT HANDLER FOR APS PAYMENT CALLBACK
+// ============================================================================
+
+/**
+ * Process retreat booking from IPN/webhook (called by payment_integration.php)
+ * 
+ * This function is invoked by the unified APS IPN handler when a retreat payment
+ * is confirmed. It creates the user account, assigns them to the retreat group,
+ * and enrolls them in BuddyPress chat.
+ * 
+ * @param array $booking_data Booking data from transient storage
+ * @param string $booking_token Unique booking identifier
+ * @return array ['success' => bool, 'user_id' => int|null, 'message' => string]
+ */
+if (!function_exists('process_retreat_booking_from_ipn')) {
+function process_retreat_booking_from_ipn($booking_data, $booking_token) {
+    global $wpdb;
+    
+    error_log('=== RETREAT IPN BOOKING PROCESSOR START ===');
+    error_log('Token: ' . $booking_token);
+    
+    // ============================================
+    // 1. IDEMPOTENCY CHECK
+    // ============================================
+    if (!empty($booking_data['user_id'])) {
+        $existing_user = get_user_by('id', $booking_data['user_id']);
+        if ($existing_user) {
+            error_log('[Retreat IPN] User already exists (ID: ' . $booking_data['user_id'] . '), skipping creation');
+            return [
+                'success' => true,
+                'user_id' => $booking_data['user_id'],
+                'message' => 'User already created'
+            ];
+        }
+    }
+    
+    $personal_info = $booking_data['personal_info'] ?? [];
+    $email = $personal_info['email'] ?? '';
+    
+    if (empty($email)) {
+        error_log('[Retreat IPN] ERROR: No email in booking data');
+        return [
+            'success' => false,
+            'user_id' => null,
+            'message' => 'No email in booking data'
+        ];
+    }
+    
+    // Check if email already registered
+    $existing_user = get_user_by('email', $email);
+    if ($existing_user) {
+        $user_id = $existing_user->ID;
+        error_log('[Retreat IPN] Email exists, using existing user ID: ' . $user_id);
+    } else {
+        // ============================================
+        // 2. CREATE NEW USER ACCOUNT
+        // ============================================
+        $username = sanitize_user($email);
+        $password = $personal_info['password'] ?? wp_generate_password(12, true);
+        
+        $user_id = wp_create_user($username, $password, $email);
+        
+        if (is_wp_error($user_id)) {
+            error_log('[Retreat IPN] ERROR: Failed to create user: ' . $user_id->get_error_message());
+            return [
+                'success' => false,
+                'user_id' => null,
+                'message' => 'Failed to create user: ' . $user_id->get_error_message()
+            ];
+        }
+        
+        error_log('[Retreat IPN] Created new user ID: ' . $user_id);
+    }
+    
+    // ============================================
+    // 3. SAVE USER METADATA
+    // ============================================
+    $full_name = $personal_info['full_name'] ?? '';
+    $names = explode(' ', trim($full_name), 2);
+    $first_name = $names[0] ?? '';
+    
+    update_user_meta($user_id, 'full_name', $full_name);
+    update_user_meta($user_id, 'first_name', $first_name);
+    update_user_meta($user_id, 'phone', $personal_info['phone'] ?? '');
+    update_user_meta($user_id, 'country', $personal_info['country'] ?? '');
+    update_user_meta($user_id, 'gender', $personal_info['gender'] ?? '');
+    update_user_meta($user_id, 'birth_date', $personal_info['birth_date'] ?? '');
+    update_user_meta($user_id, 'retreat_type', $booking_data['retreat_type'] ?? '');
+    
+    // Payment metadata
+    $transaction_id = $booking_data['transaction_id'] ?? $booking_data['tran_ref'] ?? '';
+    update_user_meta($user_id, 'payment_transaction_id', $transaction_id);
+    update_user_meta($user_id, 'payment_amount', $booking_data['amount'] ?? 0);
+    
+    // Passport file
+    if (!empty($booking_data['passport_url'])) {
+        update_user_meta($user_id, 'passport_scan', $booking_data['passport_url']);
+    }
+    
+    // ============================================
+    // 4. ASSIGN TO RETREAT GROUP (CRITICAL!)
+    // ============================================
+    $group_id = intval($booking_data['group_id'] ?? 0);
+    if ($group_id <= 0) {
+        error_log('[Retreat IPN] ERROR: Invalid group_id: ' . $group_id);
+        return [
+            'success' => false,
+            'user_id' => $user_id,
+            'message' => 'Invalid group_id: ' . $group_id
+        ];
+    }
+    
+    $update_result = update_user_meta($user_id, 'assigned_retreat_group', $group_id);
+    
+    if ($update_result === false) {
+        $existing_group = get_user_meta($user_id, 'assigned_retreat_group', true);
+        if ($existing_group != $group_id) {
+            error_log('[Retreat IPN] ERROR: Failed to assign user to retreat group');
+            return [
+                'success' => false,
+                'user_id' => $user_id,
+                'message' => 'Failed to assign user to retreat group'
+            ];
+        }
+    }
+    
+    error_log('[Retreat IPN] Assigned user ' . $user_id . ' to retreat group: ' . $group_id);
+    
+    // ============================================
+    // 5. ENROLL IN BUDDYPRESS CHAT GROUP
+    // ============================================
+    if (function_exists('enroll_retreat_user_to_bp_chat_group')) {
+        $start_date = '';
+        if ($group_id > 0 && function_exists('get_field')) {
+            $start_date = get_field('start_date', $group_id);
+        }
+        
+        error_log('[Retreat IPN] Enrolling user in BuddyPress chat group');
+        
+        $bp_result = enroll_retreat_user_to_bp_chat_group(
+            $user_id,
+            $booking_data['retreat_type'] ?? '',
+            $first_name,
+            $start_date
+        );
+        
+        if ($bp_result) {
+            error_log('[Retreat IPN] ✓ Enrolled user in BuddyPress chat group');
+        } else {
+            error_log('[Retreat IPN] WARNING: BuddyPress enrollment failed (non-fatal)');
+        }
+    } else {
+        error_log('[Retreat IPN] WARNING: enroll_retreat_user_to_bp_chat_group function not available');
+    }
+    
+    // ============================================
+    // 6. SEND CONFIRMATION EMAIL
+    // ============================================
+    $retreat_title = get_the_title($group_id);
+    $start_date = '';
+    $end_date = '';
+    $destination = '';
+    
+    if (function_exists('get_field')) {
+        $start_date = get_field('start_date', $group_id);
+        $end_date = get_field('end_date', $group_id);
+        $destination = get_field('trip_destination', $group_id);
+    }
+    
+    $email_subject = 'Retreat Booking Confirmation - Tanafs';
+    $email_body = "Dear {$full_name},\n\n";
+    $email_body .= "Thank you for booking your retreat with Tanafs!\n\n";
+    $email_body .= "Your retreat booking has been confirmed.\n\n";
+    $email_body .= "Retreat: {$retreat_title}\n";
+    if ($start_date && $end_date) {
+        $email_body .= "Dates: {$start_date} to {$end_date}\n";
+    }
+    if ($destination) {
+        $email_body .= "Destination: {$destination}\n";
+    }
+    $email_body .= "\nPayment Transaction ID: {$transaction_id}\n";
+    $email_body .= "Amount Paid: " . ($booking_data['amount'] ?? '0') . " " . ($booking_data['currency'] ?? 'SAR') . "\n\n";
+    $email_body .= "Please complete the wellness questionnaire when you return to the site.\n\n";
+    $email_body .= "You can login at: " . wp_login_url() . "\n\n";
+    $email_body .= "We look forward to seeing you!\n\n";
+    $email_body .= "Best regards,\nTanafs Team";
+    
+    wp_mail($email, $email_subject, $email_body);
+    error_log('[Retreat IPN] Sent confirmation email to: ' . $email);
+    
+    // ============================================
+    // 7. RETURN SUCCESS
+    // ============================================
+    error_log('=== RETREAT IPN BOOKING PROCESSOR SUCCESS ===');
+    error_log('User ID: ' . $user_id);
+    
+    return [
+        'success' => true,
+        'user_id' => $user_id,
+        'message' => 'Retreat booking created successfully'
+    ];
+}
 }

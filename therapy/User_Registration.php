@@ -66,7 +66,7 @@ add_action('template_redirect', function () {
         $current_url = $_SERVER['REQUEST_URI'] ?? '';
         $is_retreat_page   = (strpos($current_url, 'retreat') !== false);
         $is_ajax           = defined('DOING_AJAX') && DOING_AJAX;
-        // IMPORTANT: do NOT redirect away if the user is returning from PayTabs
+// IMPORTANT: do NOT redirect away if the user is returning from APS
         // payment — the page needs to verify the payment before redirecting.
         $is_payment_return = isset($_GET['payment_return'])
                              && strpos(sanitize_text_field($_GET['payment_return']), 'therapy_') === 0;
@@ -819,7 +819,7 @@ function render_therapy_registration_form()
                         <p style="margin: 0; font-size: 14px; color: #1e40af;">
                             <strong><?php echo $is_rtl ? 'رسوم الجلسة:' : 'Session Fee:'; ?></strong>
                             <span style="font-size: 20px; font-weight: 700; color: #059669;">
-                                <?php echo number_format($therapy_price, 2); ?> <?php echo get_option('paytabs_currency', 'SAR'); ?>
+                                <?php echo number_format($therapy_price, 2); ?> <?php echo get_option('tanafs_aps_currency', 'SAR'); ?>
                             </span>
                         </p>
                     </div>
@@ -881,7 +881,7 @@ function render_therapy_registration_form()
                     setStatus(messages.processing, false);
 
                     const formData = new FormData();
-                    formData.append('action', 'initiate_therapy_payment_logged_in');
+                    formData.append('action', 'tanafs_initiate_therapy_payment_logged_in');
                     formData.append('nonce', THERAPY_REG_AJAX.nonce);
                     formData.append('selected_group_id', selectedGroupId);
 
@@ -896,9 +896,10 @@ function render_therapy_registration_form()
                         if (data.data?.debug) {
                             console.log('[Therapy Payment DEBUG] Server debug info:', data.data.debug);
                         }
-                        if (data.success && data.data.redirect_url) {
+                        if (data.success && data.data.redirect_url && data.data.params) {
                             setStatus(messages.redirectingPayment, false);
-                            window.location.href = data.data.redirect_url;
+                            // APS requires form POST redirect
+                            tanafsRedirectToAPS(data.data.redirect_url, data.data.params);
                         } else {
                             throw new Error(data.data?.message || 'Payment initiation failed');
                         }
@@ -910,6 +911,25 @@ function render_therapy_registration_form()
                         payBtn.classList.remove('loading');
                         retryBtn.style.display = 'inline-block';
                     });
+                }
+
+                // APS Payment redirect helper
+                function tanafsRedirectToAPS(url, params) {
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = url;
+                    form.style.display = 'none';
+                    
+                    Object.keys(params).forEach(function(key) {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = key;
+                        input.value = params[key];
+                        form.appendChild(input);
+                    });
+                    
+                    document.body.appendChild(form);
+                    form.submit();
                 }
 
                 function verifyPayment(token) {
@@ -1416,7 +1436,7 @@ function render_therapy_registration_form()
                                 if ($group_price > 0) $display_price = $group_price;
                             }
                             echo number_format($display_price, 2);
-                        ?> <?php echo get_option('paytabs_currency', 'SAR'); ?>
+                        ?> <?php echo get_option('tanafs_aps_currency', 'SAR'); ?>
                     </span>
                 </p>
                 <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
@@ -1675,9 +1695,9 @@ function render_therapy_registration_form()
                             
                             const bookingToken = data.data.booking_token;
                             
-                            // STEP 2: Initiate PayTabs payment
+                            // STEP 2: Initiate APS payment
                             const paymentData = new FormData();
-                            paymentData.append('action', 'initiate_therapy_payment');
+                            paymentData.append('action', 'tanafs_initiate_therapy_payment');
                             paymentData.append('nonce', form.querySelector('[name="nonce"]').value);
                             paymentData.append('booking_token', bookingToken);
                             
@@ -1695,10 +1715,10 @@ function render_therapy_registration_form()
                         }
                     })
                     .then(function(paymentResponse) {
-                        if (paymentResponse.success && paymentResponse.data.redirect_url) {
-                            // Redirect to PayTabs payment page
+                        if (paymentResponse.success && paymentResponse.data.redirect_url && paymentResponse.data.params) {
+                            // Auto-submit form to redirect to APS payment page
                             showAlert(messages.redirectingPayment, 'success');
-                            window.location.href = paymentResponse.data.redirect_url;
+                            tanafsRedirectToAPS(paymentResponse.data.redirect_url, paymentResponse.data.params);
                         } else {
                             throw new Error(paymentResponse.data?.message || 'Failed to initiate payment');
                         }
@@ -1712,6 +1732,29 @@ function render_therapy_registration_form()
                     });
             });
         })();
+
+        // ================================================================================
+        // APS PAYMENT REDIRECT HELPER
+        // ================================================================================
+        function tanafsRedirectToAPS(url, params) {
+            // Create a hidden form and auto-submit to APS checkout
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = url;
+            form.style.display = 'none';
+            
+            // Add all parameters as hidden inputs
+            Object.keys(params).forEach(function(key) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = params[key];
+                form.appendChild(input);
+            });
+            
+            document.body.appendChild(form);
+            form.submit();
+        }
     </script>
 <?php
     return ob_get_clean();
@@ -2100,5 +2143,220 @@ function send_therapy_registration_email($email, $first_name)
     ];
 
     wp_mail($email, $subject, $message, $headers);
+}
+}
+
+// ============================================================================
+// IPN FULFILLMENT HANDLER FOR APS PAYMENT CALLBACK
+// ============================================================================
+
+/**
+ * Process therapy booking from IPN/webhook (called by payment_integration.php)
+ * 
+ * This function is invoked by the unified APS IPN handler when a therapy payment
+ * is confirmed. It creates the user account, assigns them to the therapy group,
+ * and enrolls them in BuddyPress chat.
+ * 
+ * @param array $booking_data Booking data from transient storage
+ * @param string $booking_token Unique booking identifier
+ * @return array ['success' => bool, 'user_id' => int|null, 'message' => string]
+ */
+if (!function_exists('process_therapy_booking_from_ipn')) {
+function process_therapy_booking_from_ipn($booking_data, $booking_token) {
+    error_log('=== THERAPY IPN BOOKING PROCESSOR START ===');
+    error_log('Token: ' . $booking_token);
+    
+    // ============================================
+    // 1. IDEMPOTENCY CHECK
+    // ============================================
+    if (!empty($booking_data['user_id'])) {
+        $existing_user = get_user_by('id', $booking_data['user_id']);
+        if ($existing_user) {
+            error_log('[Therapy IPN] User already exists (ID: ' . $booking_data['user_id'] . '), skipping creation');
+            return [
+                'success' => true,
+                'user_id' => $booking_data['user_id'],
+                'message' => 'User already created'
+            ];
+        }
+    }
+    
+    $personal_info = $booking_data['personal_info'] ?? [];
+    $email = $personal_info['email'] ?? '';
+    
+    if (empty($email)) {
+        error_log('[Therapy IPN] ERROR: No email in booking data');
+        return [
+            'success' => false,
+            'user_id' => null,
+            'message' => 'No email in booking data'
+        ];
+    }
+    
+    // ============================================
+    // 2. CHECK IF EMAIL ALREADY EXISTS
+    // ============================================
+    $existing_user = get_user_by('email', $email);
+    if ($existing_user) {
+        $user_id = $existing_user->ID;
+        error_log('[Therapy IPN] Email exists, using existing user ID: ' . $user_id);
+    } else {
+        // ============================================
+        // 3. CREATE NEW USER ACCOUNT
+        // ============================================
+        $password = $personal_info['password'] ?? wp_generate_password(12, true);
+        
+        $user_id = wp_create_user($email, $password, $email);
+        
+        if (is_wp_error($user_id)) {
+            error_log('[Therapy IPN] ERROR: Failed to create user: ' . $user_id->get_error_message());
+            return [
+                'success' => false,
+                'user_id' => null,
+                'message' => 'Failed to create user: ' . $user_id->get_error_message()
+            ];
+        }
+        
+        error_log('[Therapy IPN] Created new user ID: ' . $user_id);
+        
+        // Update user display name
+        wp_update_user([
+            'ID'           => $user_id,
+            'first_name'   => $personal_info['first_name'] ?? '',
+            'last_name'    => $personal_info['last_name'] ?? '',
+            'display_name' => ($personal_info['first_name'] ?? '') . ' ' . ($personal_info['last_name'] ?? ''),
+        ]);
+    }
+    
+    // ============================================
+    // 4. SAVE USER METADATA
+    // ============================================
+    update_user_meta($user_id, 'first_name', $personal_info['first_name'] ?? '');
+    update_user_meta($user_id, 'last_name', $personal_info['last_name'] ?? '');
+    update_user_meta($user_id, 'phone_number', $personal_info['phone'] ?? '');
+    update_user_meta($user_id, 'passport_no', $personal_info['passport_number'] ?? '');
+    update_user_meta($user_id, 'country', $personal_info['country'] ?? '');
+    update_user_meta($user_id, 'dob', $personal_info['birth_date'] ?? '');
+    update_user_meta($user_id, 'account_status', 'approved');
+    
+    // Payment metadata
+    $transaction_id = $booking_data['transaction_id'] ?? $booking_data['tran_ref'] ?? '';
+    update_user_meta($user_id, 'payment_transaction_id', $transaction_id);
+    update_user_meta($user_id, 'payment_amount', $booking_data['amount'] ?? 0);
+    update_user_meta($user_id, 'payment_method', 'aps');
+    
+    // Session data (from assessment)
+    $session_data = $booking_data['session_data'] ?? [];
+    if (!empty($session_data['concern_type'])) {
+        update_user_meta($user_id, 'concern_type', $session_data['concern_type']);
+    }
+    if (!empty($session_data['gender'])) {
+        update_user_meta($user_id, 'gender', $session_data['gender']);
+    }
+    if (!empty($session_data['assessment_passed'])) {
+        update_user_meta($user_id, 'assessment_passed', $session_data['assessment_passed']);
+    }
+    
+    // Set user role
+    $user = new WP_User($user_id);
+    $user->set_role('subscriber');
+    
+    // ============================================
+    // 5. ASSIGN TO THERAPY GROUP
+    // ============================================
+    $group_id = intval($booking_data['group_id'] ?? 0);
+    if ($group_id <= 0) {
+        error_log('[Therapy IPN] ERROR: Invalid group_id: ' . $group_id);
+        return [
+            'success' => false,
+            'user_id' => $user_id,
+            'message' => 'Invalid therapy group'
+        ];
+    }
+    
+    // DIRECT ASSIGNMENT (bypass capacity checks - user already paid!)
+    update_user_meta($user_id, 'assigned_group', $group_id);
+    error_log('[Therapy IPN] Direct assignment: user ' . $user_id . ' to group ' . $group_id);
+    
+    // Copy issue/gender metadata from group to user (required for system compatibility)
+    if (function_exists('get_field')) {
+        $group_issue = get_field('issue_type', $group_id);
+        $group_gender = get_field('gender', $group_id);
+        
+        if ($group_issue && empty(get_user_meta($user_id, 'concern_type', true))) {
+            update_user_meta($user_id, 'concern_type', $group_issue);
+            error_log('[Therapy IPN] Set user concern_type: ' . $group_issue);
+        }
+        if ($group_gender && empty(get_user_meta($user_id, 'gender', true))) {
+            update_user_meta($user_id, 'gender', $group_gender);
+            error_log('[Therapy IPN] Set user gender: ' . $group_gender);
+        }
+    }
+    
+    // Verify assignment
+    $assigned_group = get_user_meta($user_id, 'assigned_group', true);
+    error_log('[Therapy IPN] Verified assigned_group: ' . $assigned_group);
+    
+    // ============================================
+    // 6. ENROLL IN BUDDYPRESS CHAT GROUP
+    // ============================================
+    if (function_exists('enroll_user_to_bp_chat_group') && $assigned_group) {
+        $bp_result = enroll_user_to_bp_chat_group($user_id, $assigned_group);
+        if ($bp_result) {
+            error_log('[Therapy IPN] ✓ Enrolled user in BuddyPress chat group');
+        } else {
+            error_log('[Therapy IPN] WARNING: BuddyPress enrollment failed (non-fatal)');
+        }
+    } else {
+        error_log('[Therapy IPN] WARNING: enroll_user_to_bp_chat_group not available or no group assigned');
+    }
+    
+    // ============================================
+    // 7. SEND CONFIRMATION EMAIL
+    // ============================================
+    $group_title = $booking_data['group_title'] ?? get_the_title($group_id);
+    $session_start = '';
+    $session_expiry = '';
+    if (function_exists('get_field')) {
+        $session_start = get_field('session_start_date', $group_id);
+        $session_expiry = get_field('session_expiry_date', $group_id);
+    }
+    
+    $email_subject = 'Therapy Session Booking Confirmation - Tanafs';
+    $email_body = "Dear " . ($personal_info['first_name'] ?? '') . ",\n\n";
+    $email_body .= "Thank you for booking your therapy session with Tanafs!\n\n";
+    $email_body .= "Your booking has been confirmed.\n\n";
+    $email_body .= "Therapy Group: {$group_title}\n";
+    if ($session_start && $session_expiry) {
+        $email_body .= "Session Period: {$session_start} to {$session_expiry}\n";
+    }
+    $email_body .= "\nPayment Transaction ID: {$transaction_id}\n";
+    $email_body .= "Amount Paid: " . ($booking_data['amount'] ?? '0') . " " . ($booking_data['currency'] ?? 'SAR') . "\n\n";
+    $email_body .= "You can login at: " . wp_login_url() . "\n";
+    $email_body .= "Your username is your email: {$email}\n\n";
+    $email_body .= "We look forward to seeing you!\n\n";
+    $email_body .= "Best regards,\nTanafs Team";
+    
+    wp_mail($email, $email_subject, $email_body);
+    error_log('[Therapy IPN] Sent confirmation email to: ' . $email);
+    
+    // ============================================
+    // 8. REMOVE FROM WAITING LIST IF APPLICABLE
+    // ============================================
+    if (function_exists('remove_user_from_waiting_list_by_email')) {
+        remove_user_from_waiting_list_by_email($email);
+    }
+    
+    // ============================================
+    // 9. RETURN SUCCESS
+    // ============================================
+    error_log('=== THERAPY IPN BOOKING PROCESSOR SUCCESS ===');
+    error_log('User ID: ' . $user_id);
+    
+    return [
+        'success' => true,
+        'user_id' => $user_id,
+        'message' => 'Therapy booking created successfully'
+    ];
 }
 }

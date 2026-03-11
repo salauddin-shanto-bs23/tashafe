@@ -2209,8 +2209,8 @@ function academy_phase1_shortcode()
                 e.preventDefault();
 
                 var formData = $(this).serialize();
-                formData += '&action=academy_initiate_payment';
-                // Pass the current page URL so PayTabs can return here
+                formData += '&action=tanafs_initiate_academy_payment';
+                // Pass the current page URL so APS can return here
                 formData += '&return_page_url=' + encodeURIComponent(window.location.origin + window.location.pathname);
 
                 const $btn = $(this).find('button[type="submit"]');
@@ -2223,9 +2223,9 @@ function academy_phase1_shortcode()
                     type: 'POST',
                     data: formData,
                     success: function(response) {
-                        if (response.success && response.data.redirect_url) {
-                            // Redirect to PayTabs HPP
-                            window.location.href = response.data.redirect_url;
+                        if (response.success && response.data.redirect_url && response.data.params) {
+                            // Auto-submit form to redirect to APS payment page
+                            tanafsRedirectToAPS(response.data.redirect_url, response.data.params);
                         } else {
                             $btn.prop('disabled', false).text('<?php echo esc_js(academy_get_text('submit_registration')); ?>');
                             $('#academy-register-result')
@@ -2243,6 +2243,25 @@ function academy_phase1_shortcode()
                     }
                 });
             });
+
+            // APS Payment redirect helper function
+            function tanafsRedirectToAPS(url, params) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = url;
+                form.style.display = 'none';
+                
+                Object.keys(params).forEach(function(key) {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = key;
+                    input.value = params[key];
+                    form.appendChild(input);
+                });
+                
+                document.body.appendChild(form);
+                form.submit();
+            }
 
             // ── Payment return: detect ?payment_return=TOKEN in URL ──────────
             (function() {
@@ -2837,6 +2856,68 @@ function academy_complete_registration($booking_data, $booking_token)
     academy_send_registration_confirmation($email, $full_name, $program_id);
 
     return ['success' => true, 'message' => 'Registration successful'];
+}
+}
+
+// ============================================================================
+// IPN FULFILLMENT WRAPPER FOR APS PAYMENT CALLBACK
+// ============================================================================
+
+/**
+ * Process academy booking from IPN/webhook (called by payment_integration.php)
+ * 
+ * This is a wrapper that routes to academy_complete_registration() with consistent
+ * interface for the unified payment handler.
+ * 
+ * NOTE: Function renamed to avoid conflict with old PayTabs IPN handler below.
+ * The old handler will be deprecated once migration is complete.
+ * 
+ * @param string $booking_token Unique booking identifier
+ * @param array $payment_data APS callback data (not used for academy, data comes from transient)
+ * @return array ['success' => bool, 'user_id' => int|null, 'message' => string]
+ */
+if (!function_exists('process_academy_booking_from_ipn')) {
+function process_academy_booking_from_ipn($booking_token, $payment_data) {
+    error_log('=== ACADEMY IPN FULFILLMENT START ===');
+    error_log('Token: ' . $booking_token);
+    
+    // Retrieve booking data from transient storage
+    $transient_key = 'academy_' . str_replace('academy_', '', $booking_token);
+    $booking_data = academy_booking_get($transient_key);
+    
+    if (!$booking_data) {
+        error_log('[Academy IPN] ERROR: Booking data not found for token: ' . $booking_token);
+        return [
+            'success' => false,
+            'user_id' => null,
+            'message' => 'Academy booking data not found in transient storage'
+        ];
+    }
+    
+    // Add transaction ID from payment data if available
+    if (!empty($payment_data['merchant_reference'])) {
+        $booking_data['tran_ref'] = $payment_data['merchant_reference'];
+    }
+    
+    // Call the existing academy registration function
+    $result = academy_complete_registration($booking_data, $booking_token);
+    
+    // Normalize return format for unified handler
+    if ($result['success']) {
+        error_log('[Academy IPN] Registration successful');
+        return [
+            'success' => true,
+            'user_id' => null, // Academy doesn't create user accounts, only registration records
+            'message' => $result['message'] ?? 'Academy registration successful'
+        ];
+    } else {
+        error_log('[Academy IPN] Registration failed: ' . ($result['message'] ?? 'Unknown error'));
+        return [
+            'success' => false,
+            'user_id' => null,
+            'message' => $result['message'] ?? 'Academy registration failed'
+        ];
+    }
 }
 }
 
