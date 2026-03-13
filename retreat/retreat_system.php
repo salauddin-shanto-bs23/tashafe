@@ -2383,7 +2383,7 @@ add_action('wp_footer', function () {
         
         jQuery(document).ready(function($) {
             // ===== PAYMENT RETURN HANDLING =====
-            // Check if we're returning from PayTabs payment
+            // Check if we're returning from gateway payment
             const urlParams = new URLSearchParams(window.location.search);
             const paymentReturnToken = urlParams.get('payment_return');
             
@@ -2393,9 +2393,7 @@ add_action('wp_footer', function () {
                 // Show loading modal
                 $('body').append('<div id="payment-verification-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center;"><div style="background:white;padding:40px;border-radius:10px;text-align:center;"><div style="border:4px solid #f3f3f3;border-top:4px solid #6059A6;border-radius:50%;width:50px;height:50px;animation:spin 1s linear infinite;margin:0 auto 20px;"></div><h3 style="color:#333;">Verifying Your Payment...</h3><p id="verification-status" style="color:#666;">Please wait while we confirm your payment.</p></div></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>');
                 
-                // ★★★ DIRECT PAYTABS VERIFICATION ★★★
-                // Backend now verifies directly with PayTabs API (no nonce dependency)
-                // This guarantees success on first attempt if payment went through
+                // Backend verification checks shared payment status endpoint.
                 
                 let retryCount = 0;
                 const maxRetries = 3; // Reduced: only retry for network issues
@@ -2406,7 +2404,7 @@ add_action('wp_footer', function () {
                     console.log('Verification attempt #' + retryCount);
                     
                     $.post(RETREAT_AJAX.url, {
-                        action: 'verify_retreat_payment_status',
+                        action: 'tanafs_verify_retreat_payment',
                         token: paymentReturnToken,
                         nonce: RETREAT_AJAX.nonce
                     }, function(response) {
@@ -2998,10 +2996,9 @@ add_action('wp_footer', function () {
                     token: token,
                     nonce: RETREAT_AJAX.nonce
                 }, function(response) {
-                    if (response.success && response.data.redirect_url && response.data.params) {
-                        console.log('Payment initiated, redirecting to APS...');
-                        // Auto-submit form to redirect to APS payment page
-                        tanafsRedirectToAPS(response.data.redirect_url, response.data.params);
+                    if (response.success && response.data.gateway === 'hyperpay' && response.data.checkout_id && response.data.widget_url) {
+                        console.log('Payment initiated, launching HyperPay checkout...');
+                        tanafsLaunchHyperPayCheckout(response.data);
                     } else {
                         const errorMsg = (response.data && response.data.message) ? response.data.message : 
                                        (typeof response.data === 'string' ? response.data : 'Unknown error');
@@ -3014,23 +3011,20 @@ add_action('wp_footer', function () {
                 });
             }
 
-            // APS Payment redirect helper
-            function tanafsRedirectToAPS(url, params) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = url;
-                form.style.display = 'none';
-                
-                Object.keys(params).forEach(function(key) {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = key;
-                    input.value = params[key];
-                    form.appendChild(input);
-                });
-                
-                document.body.appendChild(form);
-                form.submit();
+            function tanafsLaunchHyperPayCheckout(payload) {
+                const overlay = document.createElement('div');
+                overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
+                overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
+                    + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
+                    + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
+                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                    + '</div>';
+                document.body.appendChild(overlay);
+
+                const script = document.createElement('script');
+                script.src = payload.widget_url;
+                script.async = true;
+                document.body.appendChild(script);
             }
 
             // Back from registration to details

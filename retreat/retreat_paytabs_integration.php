@@ -18,6 +18,11 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
+// Shared HyperPay integration is now the single payment source of truth.
+if (function_exists('tanafs_hyperpay_create_checkout')) {
+    return;
+}
+
 // ============================================================================
 // SECTION 1: CORE PAYTABS API FUNCTIONS
 // ============================================================================

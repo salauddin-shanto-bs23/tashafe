@@ -1,13 +1,13 @@
 <?php
 /**
  * Unified Payment Integration System for Tanafs
- * Amazon Payment Services (APS) integration serving therapy, retreat, and academy bookings
+ * Shared HyperPay integration serving therapy, retreat, and academy bookings
  * 
  * Features:
- * - Single payment configuration page for APS credentials
+ * - Single payment configuration page for HyperPay credentials
  * - Unified payment processing for all booking types (therapy, retreat, academy)
  * - booking_type field tracking for payment routing
- * - IPN/webhook handler with signature verification
+ * - IPN/webhook handler with server-side verification
  * - Payment tracking database table
  * - Admin interface to list all payments with filters
  * 
@@ -19,7 +19,7 @@
  * 
  * @package Tanafs
  * @version 2.0.0
- * @gateway Amazon Payment Services (APS / Checkout.com)
+ * @gateway HyperPay (OPPWA Copy and Pay)
  */
 
 if (!defined('ABSPATH')) {
@@ -42,14 +42,17 @@ function tanafs_create_payments_table() {
 
     $sql = "CREATE TABLE IF NOT EXISTS {$table_name} (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        transaction_id VARCHAR(100) NOT NULL COMMENT 'APS fort_id or merchant_reference',
+        transaction_id VARCHAR(100) NOT NULL COMMENT 'Gateway transaction identifier',
         booking_token VARCHAR(100) NOT NULL COMMENT 'Unique booking identifier (cart_id)',
+        booking_reference VARCHAR(100) DEFAULT NULL COMMENT 'External booking reference',
         booking_type VARCHAR(50) NOT NULL COMMENT 'therapy, retreat, academy, etc.',
+        hyperpay_checkout_id VARCHAR(120) DEFAULT NULL COMMENT 'HyperPay checkout/session id',
         customer_name VARCHAR(255) NOT NULL,
         customer_email VARCHAR(255) NOT NULL,
         customer_phone VARCHAR(50) DEFAULT NULL,
         amount DECIMAL(10,2) NOT NULL,
         currency VARCHAR(10) NOT NULL DEFAULT 'SAR',
+        status VARCHAR(20) DEFAULT NULL COMMENT 'Compatibility status mirror: pending, complete, failed',
         payment_status VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT 'pending, complete, failed',
         payment_method VARCHAR(50) DEFAULT NULL COMMENT 'VISA, MASTERCARD, etc.',
         aps_response_code VARCHAR(20) DEFAULT NULL,
@@ -62,7 +65,10 @@ function tanafs_create_payments_table() {
         PRIMARY KEY (id),
         UNIQUE KEY transaction_id (transaction_id),
         KEY booking_token (booking_token),
+        KEY booking_reference (booking_reference),
         KEY booking_type (booking_type),
+        KEY hyperpay_checkout_id (hyperpay_checkout_id),
+        KEY status (status),
         KEY payment_status (payment_status),
         KEY customer_email (customer_email),
         KEY created_at (created_at)
@@ -118,7 +124,7 @@ function tanafs_payment_admin_menu() {
 // ============================================================================
 
 /**
- * Render APS configuration page
+ * Render HyperPay configuration page
  */
 function tanafs_render_payment_config_page() {
     // Check user capabilities
@@ -127,36 +133,44 @@ function tanafs_render_payment_config_page() {
     }
 
     // Save settings if form submitted
-    if (isset($_POST['tanafs_save_aps_settings']) && check_admin_referer('tanafs_aps_settings_nonce')) {
-        update_option('tanafs_aps_merchant_identifier', sanitize_text_field($_POST['merchant_identifier']));
-        update_option('tanafs_aps_access_code', sanitize_text_field($_POST['access_code']));
-        update_option('tanafs_aps_sha_request_phrase', sanitize_text_field($_POST['sha_request_phrase']));
-        update_option('tanafs_aps_sha_response_phrase', sanitize_text_field($_POST['sha_response_phrase']));
-        update_option('tanafs_aps_mode', sanitize_text_field($_POST['mode']));
-        update_option('tanafs_aps_currency', sanitize_text_field($_POST['currency']));
-        update_option('tanafs_aps_language', sanitize_text_field($_POST['language']));
-        
-        echo '<div class="notice notice-success is-dismissible"><p>APS settings saved successfully!</p></div>';
+    if (isset($_POST['tanafs_save_hyperpay_settings']) && check_admin_referer('tanafs_hyperpay_settings_nonce')) {
+        $entity_id = sanitize_text_field($_POST['entity_id'] ?? '');
+        $access_token = sanitize_text_field($_POST['access_token'] ?? '');
+        $mode = sanitize_text_field($_POST['mode'] ?? 'sandbox');
+        $currency = sanitize_text_field($_POST['currency'] ?? 'SAR');
+
+        // Keep compatibility with existing mode checks that use "live".
+        if ($mode === 'production') {
+            $mode = 'live';
+        }
+
+        update_option('tanafs_hyperpay_entity_id', $entity_id);
+        update_option('tanafs_hyperpay_access_token', $access_token);
+        update_option('tanafs_hyperpay_mode', $mode);
+        update_option('tanafs_hyperpay_currency', $currency);
+
+        // Keep mode/currency mirrored during migration so legacy reads do not break.
+        update_option('tanafs_aps_mode', $mode);
+        update_option('tanafs_aps_currency', $currency);
+
+        echo '<div class="notice notice-success is-dismissible"><p>HyperPay settings saved successfully!</p></div>';
     }
 
     // Get current settings
-    $merchant_identifier = get_option('tanafs_aps_merchant_identifier', '');
-    $access_code = get_option('tanafs_aps_access_code', '');
-    $sha_request_phrase = get_option('tanafs_aps_sha_request_phrase', '');
-    $sha_response_phrase = get_option('tanafs_aps_sha_response_phrase', '');
-    $mode = get_option('tanafs_aps_mode', 'sandbox');
-    $currency = get_option('tanafs_aps_currency', 'SAR');
-    $language = get_option('tanafs_aps_language', 'en');
+    $entity_id = get_option('tanafs_hyperpay_entity_id', '');
+    $access_token = get_option('tanafs_hyperpay_access_token', '');
+    $mode = get_option('tanafs_hyperpay_mode', get_option('tanafs_aps_mode', 'sandbox'));
+    $currency = get_option('tanafs_hyperpay_currency', get_option('tanafs_aps_currency', 'SAR'));
     
     ?>
     <div class="wrap">
-        <h1>Amazon Payment Services (APS) Configuration</h1>
-        <p class="description">Configure APS payment gateway for Therapy, Retreat, and Academy bookings</p>
+        <h1>HyperPay Configuration</h1>
+        <p class="description">Configure HyperPay Copy and Pay for Therapy, Retreat, and Academy bookings</p>
 
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
         
         <style>
-            .aps-settings-container {
+            .gateway-settings-container {
                 max-width: 900px;
                 margin-top: 30px;
             }
@@ -224,58 +238,41 @@ function tanafs_render_payment_config_page() {
             }
         </style>
 
-        <div class="aps-settings-container">
+        <div class="gateway-settings-container">
             <div class="info-box">
-                <strong>ℹ️ About Amazon Payment Services (APS)</strong><br>
-                APS (formerly known as Payfort) is a secure payment gateway supporting multiple payment methods across the MENA region.
-                This configuration applies to all Tanafs booking modules: Therapy, Retreat, and Academy.
+                <strong>About HyperPay (OPPWA Copy and Pay)</strong><br>
+                HyperPay checkout is used as the shared payment gateway across therapy, retreat, and academy booking flows.
             </div>
 
             <!-- API Credentials Card -->
             <div class="settings-card">
                 <h2>API Credentials</h2>
                 <form method="post" action="">
-                    <?php wp_nonce_field('tanafs_aps_settings_nonce'); ?>
+                      <?php wp_nonce_field('tanafs_hyperpay_settings_nonce'); ?>
                     
                     <div class="mb-4">
-                        <label class="form-label">Merchant Identifier <span class="text-danger">*</span></label>
-                        <input type="text" name="merchant_identifier" class="form-control" 
-                               value="<?php echo esc_attr($merchant_identifier); ?>" required 
-                               placeholder="e.g., YOUR_MERCHANT_ID">
-                        <small class="text-muted">Found in APS Dashboard → Integration Settings</small>
+                       <label class="form-label">Entity ID <span class="text-danger">*</span></label>
+                       <input type="text" name="entity_id" class="form-control"
+                           value="<?php echo esc_attr($entity_id); ?>" required
+                           placeholder="e.g., 8ac7a4c793...">
+                       <small class="text-muted">Found in HyperPay dashboard credentials</small>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label">Access Code <span class="text-danger">*</span></label>
-                        <input type="text" name="access_code" class="form-control" 
-                               value="<?php echo esc_attr($access_code); ?>" required 
-                               placeholder="e.g., YOUR_ACCESS_CODE">
-                        <small class="text-muted">Found in APS Dashboard → Integration Settings</small>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label">SHA Request Phrase <span class="text-danger">*</span></label>
-                        <input type="text" name="sha_request_phrase" class="form-control" 
-                               value="<?php echo esc_attr($sha_request_phrase); ?>" required 
-                               placeholder="Enter SHA Request Passphrase">
-                        <small class="text-muted">Used to generate request signature (HMAC SHA-256)</small>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label">SHA Response Phrase <span class="text-danger">*</span></label>
-                        <input type="text" name="sha_response_phrase" class="form-control" 
-                               value="<?php echo esc_attr($sha_response_phrase); ?>" required 
-                               placeholder="Enter SHA Response Passphrase">
-                        <small class="text-muted">Used to verify response signature from APS</small>
+                       <label class="form-label">Access Token <span class="text-danger">*</span></label>
+                       <input type="text" name="access_token" class="form-control"
+                           value="<?php echo esc_attr($access_token); ?>" required
+                           placeholder="Bearer token">
+                       <small class="text-muted">Used for server-to-server checkout and verification requests</small>
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label">Mode <span class="text-danger">*</span></label>
                         <select name="mode" class="form-control" required>
                             <option value="sandbox" <?php selected($mode, 'sandbox'); ?>>Sandbox (Testing)</option>
-                            <option value="live" <?php selected($mode, 'live'); ?>>Live (Production)</option>
+                            <option value="live" <?php selected($mode, 'live'); ?>>Production (Live)</option>
                         </select>
-                        <small class="text-muted">Use Sandbox for testing, Live for production</small>
+                        <small class="text-muted">Use Sandbox for testing and Production for live transactions</small>
                     </div>
 
                     <div class="mb-4">
@@ -288,21 +285,13 @@ function tanafs_render_payment_config_page() {
                         </select>
                     </div>
 
-                    <div class="mb-4">
-                        <label class="form-label">Payment Page Language <span class="text-danger">*</span></label>
-                        <select name="language" class="form-control" required>
-                            <option value="en" <?php selected($language, 'en'); ?>>English</option>
-                            <option value="ar" <?php selected($language, 'ar'); ?>>Arabic</option>
-                        </select>
-                    </div>
-
                     <div class="warning-box">
-                        <strong>⚠️ Security Note:</strong> Never share your SHA passphrases or access code publicly. 
-                        Ensure they match exactly with your APS dashboard configuration.
+                        <strong>Security Note:</strong> Never expose HyperPay access tokens in frontend code.
+                        Keep credentials server-side only and rotate them if compromised.
                     </div>
 
-                    <button type="submit" name="tanafs_save_aps_settings" class="btn btn-save">
-                        💾 Save Configuration
+                    <button type="submit" name="tanafs_save_hyperpay_settings" class="btn btn-save">
+                        Save Configuration
                     </button>
                 </form>
             </div>
@@ -314,13 +303,13 @@ function tanafs_render_payment_config_page() {
                     <label class="form-label">Return URL (Success/Failure)</label>
                     <input type="text" class="form-control" readonly 
                            value="<?php echo esc_url(home_url('/payment-return/')); ?>">
-                    <small class="text-muted">Users are redirected here after payment (configure in APS dashboard)</small>
+                    <small class="text-muted">Customer browser returns here after HyperPay checkout</small>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">IPN/Webhook URL (Server Notification)</label>
                     <input type="text" class="form-control" readonly 
                            value="<?php echo esc_url(home_url('/payment-callback/')); ?>">
-                    <small class="text-muted">APS sends server-to-server notification here (configure in APS dashboard)</small>
+                    <small class="text-muted">Configure this endpoint in HyperPay for asynchronous server notifications</small>
                 </div>
             </div>
         </div>
@@ -387,10 +376,10 @@ function tanafs_render_all_payments_page() {
     );
     
     // Get statistics
-    $stats_pending = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE payment_status = 'pending'");
-    $stats_complete = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE payment_status = 'complete'");
-    $stats_failed = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE payment_status = 'failed'");
-    $stats_total_amount = $wpdb->get_var("SELECT SUM(amount) FROM {$table_name} WHERE payment_status = 'complete'");
+    $stats_pending = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE payment_status = 'pending'");
+    $stats_complete = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE payment_status = 'complete'");
+    $stats_failed = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name} WHERE payment_status = 'failed'");
+    $stats_total_amount = (float) ($wpdb->get_var("SELECT SUM(amount) FROM {$table_name} WHERE payment_status = 'complete'") ?? 0);
     
     ?>
     <div class="wrap">
@@ -474,19 +463,19 @@ function tanafs_render_all_payments_page() {
         <div class="stats-cards">
             <div class="stat-card pending">
                 <h3>Pending</h3>
-                <div class="value"><?php echo number_format($stats_pending); ?></div>
+                <div class="value"><?php echo number_format((float) $stats_pending); ?></div>
             </div>
             <div class="stat-card complete">
                 <h3>Completed</h3>
-                <div class="value"><?php echo number_format($stats_complete); ?></div>
+                <div class="value"><?php echo number_format((float) $stats_complete); ?></div>
             </div>
             <div class="stat-card failed">
                 <h3>Failed</h3>
-                <div class="value"><?php echo number_format($stats_failed); ?></div>
+                <div class="value"><?php echo number_format((float) $stats_failed); ?></div>
             </div>
             <div class="stat-card revenue">
                 <h3>Total Revenue (SAR)</h3>
-                <div class="value"><?php echo number_format($stats_total_amount, 2); ?></div>
+                <div class="value"><?php echo number_format((float) $stats_total_amount, 2); ?></div>
             </div>
         </div>
 
@@ -566,7 +555,7 @@ function tanafs_render_all_payments_page() {
                                         <?php echo esc_html(ucfirst($payment->booking_type)); ?>
                                     </span>
                                 </td>
-                                <td><?php echo esc_html($payment->currency); ?> <?php echo number_format($payment->amount, 2); ?></td>
+                                <td><?php echo esc_html($payment->currency); ?> <?php echo number_format((float) ($payment->amount ?? 0), 2); ?></td>
                                 <td>
                                     <span class="badge badge-<?php echo esc_attr($payment->payment_status); ?>">
                                         <?php echo esc_html(ucfirst($payment->payment_status)); ?>
@@ -600,177 +589,555 @@ function tanafs_render_all_payments_page() {
 }
 
 // ============================================================================
-// SECTION 2: CORE APS API FUNCTIONS
+// SECTION 2: CORE PAYMENT GATEWAY FUNCTIONS
 // ============================================================================
 
 /**
- * Check if APS is properly configured
- * 
- * @return bool True if configured, false otherwise
+ * Get normalized gateway mode value.
+ *
+ * @return string sandbox|live
  */
-function tanafs_aps_is_configured() {
-    $merchant_id = get_option('tanafs_aps_merchant_identifier');
-    $access_code = get_option('tanafs_aps_access_code');
-    $sha_request = get_option('tanafs_aps_sha_request_phrase');
-    $sha_response = get_option('tanafs_aps_sha_response_phrase');
-    
-    return !empty($merchant_id) && !empty($access_code) && !empty($sha_request) && !empty($sha_response);
+function tanafs_gateway_get_mode() {
+    $mode = get_option('tanafs_hyperpay_mode', get_option('tanafs_aps_mode', 'sandbox'));
+    return ($mode === 'production') ? 'live' : $mode;
 }
 
 /**
- * Get APS API endpoint based on mode (sandbox/live)
- * 
- * @return string API base URL
+ * Check if HyperPay credentials are configured.
+ *
+ * @return bool
  */
-function tanafs_aps_get_endpoint() {
-    $mode = get_option('tanafs_aps_mode', 'sandbox');
-    
+function tanafs_hyperpay_is_configured() {
+    $entity_id = get_option('tanafs_hyperpay_entity_id');
+    $access_token = get_option('tanafs_hyperpay_access_token');
+
+    return !empty($entity_id) && !empty($access_token);
+}
+
+/**
+ * Get HyperPay API base URL by mode.
+ *
+ * @return string
+ */
+function tanafs_hyperpay_get_base_url() {
+    $mode = tanafs_gateway_get_mode();
+
     if ($mode === 'live') {
-        return 'https://checkout.payfort.com/FortAPI/paymentPage';
+        return 'https://oppwa.com';
     }
-    
-    return 'https://sbcheckout.payfort.com/FortAPI/paymentPage';
+
+    return 'https://eu-test.oppwa.com';
 }
 
 /**
- * Calculate APS request signature (HMAC SHA-256)
- * 
- * @param array $params Request parameters
- * @return string Signature hash
+ * Get HyperPay checkout creation endpoint.
+ *
+ * @return string
  */
-function tanafs_aps_calculate_signature($params, $is_response = false) {
-    $sha_phrase = $is_response 
-        ? get_option('tanafs_aps_sha_response_phrase') 
-        : get_option('tanafs_aps_sha_request_phrase');
-    
-    // Sort parameters alphabetically
-    ksort($params);
-    
-    // Build signature string
-    $signature_string = $sha_phrase;
-    foreach ($params as $key => $value) {
-        if ($key !== 'signature') {
-            $signature_string .= $key . '=' . $value;
-        }
-    }
-    $signature_string .= $sha_phrase;
-    
-    return hash('sha256', $signature_string);
+function tanafs_hyperpay_get_checkout_endpoint() {
+    return tanafs_hyperpay_get_base_url() . '/v1/checkouts';
 }
 
 /**
- * Initiate APS payment session
- * 
- * Creates a payment record in pending status and redirects to APS checkout
- * 
- * @param string $booking_token Unique booking identifier (cart_id)
- * @param string $booking_type Module type (therapy, retreat, academy)
- * @param float $amount Payment amount
- * @param array $customer_details Customer information (name, email, phone)
- * @param array $options Additional options (currency, description, return_url)
- * @return array Result with success status and redirect_url or error
+ * Build HyperPay status endpoint from resource path.
+ *
+ * @param string $resource_path HyperPay resource path returned from checkout/payment response.
+ * @return string
  */
-function tanafs_aps_initiate_payment($booking_token, $booking_type, $amount, $customer_details, $options = []) {
+function tanafs_hyperpay_get_status_endpoint($resource_path) {
+    $resource_path = trim((string) $resource_path);
+
+    if (strpos($resource_path, 'http') === 0) {
+        return $resource_path;
+    }
+
+    if (strpos($resource_path, '/') !== 0) {
+        $resource_path = '/' . $resource_path;
+    }
+
+    return tanafs_hyperpay_get_base_url() . $resource_path;
+}
+
+/**
+ * Split a full name into first and last name parts.
+ *
+ * @param string $full_name Full customer name.
+ * @return array
+ */
+function tanafs_hyperpay_split_name($full_name) {
+    $full_name = trim((string) $full_name);
+    if ($full_name === '') {
+        return ['first_name' => 'Customer', 'last_name' => 'Customer'];
+    }
+
+    $parts = preg_split('/\s+/', $full_name);
+    $first_name = array_shift($parts);
+    $last_name = !empty($parts) ? implode(' ', $parts) : $first_name;
+
+    return [
+        'first_name' => sanitize_text_field($first_name),
+        'last_name' => sanitize_text_field($last_name),
+    ];
+}
+
+/**
+ * Insert pending payment row before checkout creation.
+ *
+ * @param string $transaction_id Gateway transaction id.
+ * @param string $booking_token Unique booking token.
+ * @param string $booking_type Booking type.
+ * @param float  $amount Payment amount.
+ * @param string $currency Currency code.
+ * @param array  $customer_details Customer details.
+ * @return bool
+ */
+function tanafs_insert_pending_payment($transaction_id, $booking_token, $booking_type, $amount, $currency, $customer_details) {
     global $wpdb;
-    
-    // Check configuration
-    if (!tanafs_aps_is_configured()) {
+
+    $table_name = $wpdb->prefix . 'tanafs_payments';
+    $payment_data = [
+        'transaction_id' => $transaction_id,
+        'booking_token' => $booking_token,
+        'booking_reference' => $booking_token,
+        'booking_type' => $booking_type,
+        'customer_name' => sanitize_text_field($customer_details['name'] ?? ''),
+        'customer_email' => sanitize_email($customer_details['email'] ?? ''),
+        'customer_phone' => sanitize_text_field($customer_details['phone'] ?? ''),
+        'amount' => (float) $amount,
+        'currency' => sanitize_text_field($currency),
+        'status' => 'pending',
+        'payment_status' => 'pending',
+        'ip_address' => sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? ''),
+        'user_agent' => sanitize_text_field($_SERVER['HTTP_USER_AGENT'] ?? ''),
+    ];
+
+    $inserted = $wpdb->insert($table_name, $payment_data);
+
+    if (!$inserted) {
+        tanafs_log_payment('initiation_failed', [
+            'event' => 'initiation_failed',
+            'reason' => 'db_insert_failed',
+            'booking_token' => $booking_token,
+            'booking_type' => $booking_type,
+            'transaction_id' => $transaction_id,
+            'db_error' => $wpdb->last_error,
+        ]);
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Create HyperPay checkout and persist checkout id on pending payment row.
+ *
+ * @param string $booking_token Unique booking token.
+ * @param string $booking_type Booking type.
+ * @param float  $amount Payment amount.
+ * @param array  $customer_details Customer details.
+ * @param array  $options Additional options.
+ * @return array
+ */
+function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount, $customer_details, $options = []) {
+    global $wpdb;
+
+    if (!tanafs_hyperpay_is_configured()) {
         return [
             'success' => false,
-            'error' => 'APS payment gateway is not configured. Please contact support.'
+            'error' => 'HyperPay payment gateway is not configured. Please contact support.',
         ];
     }
-    
-    $merchant_identifier = get_option('tanafs_aps_merchant_identifier');
-    $access_code = get_option('tanafs_aps_access_code');
-    $currency = $options['currency'] ?? get_option('tanafs_aps_currency', 'SAR');
-    $language = $options['language'] ?? get_option('tanafs_aps_language', 'en');
-    
-    // Generate unique merchant reference (transaction ID)
-    $merchant_reference = 'TANAFS_' . strtoupper($booking_type) . '_' . time() . '_' . rand(1000, 9999);
-    
-    // Convert amount to smallest currency unit (fils/halalas)
-    // APS requires amount in minor units (e.g., 100 SAR = 10000)
-    $amount_minor = intval($amount * 100);
-    
-    // Build return URL
+
+    $entity_id = get_option('tanafs_hyperpay_entity_id', '');
+    $access_token = get_option('tanafs_hyperpay_access_token', '');
+    $currency = sanitize_text_field($options['currency'] ?? get_option('tanafs_hyperpay_currency', get_option('tanafs_aps_currency', 'SAR')));
+    $amount_formatted = number_format((float) $amount, 2, '.', '');
+    $transaction_id = 'TANAFS_' . strtoupper($booking_type) . '_' . time() . '_' . wp_rand(1000, 9999);
+
     $return_url = $options['return_url'] ?? home_url('/payment-return/');
-    
-    // Only add non-empty query parameters to avoid rawurlencode() null deprecation in PHP 8.1+
     $query_args = [];
     if (!empty($booking_token)) {
-        $query_args['booking_token'] = sanitize_text_field($booking_token);
+        $query_args['payment_return'] = sanitize_text_field($booking_token);
     }
     if (!empty($booking_type)) {
         $query_args['booking_type'] = sanitize_text_field($booking_type);
     }
-    
     if (!empty($query_args)) {
         $return_url = add_query_arg($query_args, $return_url);
     }
-    
-    // Prepare APS request parameters
-    $params = [
-        'command' => 'PURCHASE',
-        'access_code' => $access_code,
-        'merchant_identifier' => $merchant_identifier,
-        'merchant_reference' => $merchant_reference,
-        'amount' => $amount_minor,
-        'currency' => $currency,
-        'language' => $language,
-        'customer_email' => $customer_details['email'],
-        'customer_name' => $customer_details['name'],
-        'return_url' => $return_url,
-    ];
-    
-    // Calculate signature
-    $params['signature'] = tanafs_aps_calculate_signature($params);
-    
-    // Store payment record in database (status: pending)
-    $payment_data = [
-        'transaction_id' => $merchant_reference,
-        'booking_token' => $booking_token,
-        'booking_type' => $booking_type,
-        'customer_name' => $customer_details['name'],
-        'customer_email' => $customer_details['email'],
-        'customer_phone' => $customer_details['phone'] ?? '',
-        'amount' => $amount,
-        'currency' => $currency,
-        'payment_status' => 'pending',
-        'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '',
-        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
-    ];
-    
-    $table_name = $wpdb->prefix . 'tanafs_payments';
-    $inserted = $wpdb->insert($table_name, $payment_data);
-    
+
+    // Security rule: always create pending row before checkout creation.
+    $inserted = tanafs_insert_pending_payment($transaction_id, $booking_token, $booking_type, $amount, $currency, $customer_details);
     if (!$inserted) {
-        tanafs_log_payment('initiate_db_error', [
-            'booking_token' => $booking_token,
-            'error' => $wpdb->last_error,
-        ]);
-        
         return [
             'success' => false,
             'error' => 'Failed to create payment record. Please try again.',
         ];
     }
-    
-    tanafs_log_payment('initiate_success', [
+
+    $name_parts = tanafs_hyperpay_split_name($customer_details['name'] ?? '');
+
+    $request_body = [
+        'entityId' => $entity_id,
+        'amount' => $amount_formatted,
+        'currency' => $currency,
+        'paymentType' => 'DB',
+        'merchantTransactionId' => $transaction_id,
+        'customer.email' => sanitize_email($customer_details['email'] ?? ''),
+        'customer.givenName' => $name_parts['first_name'],
+        'customer.surname' => $name_parts['last_name'],
+        'shopperResultUrl' => esc_url_raw($return_url),
+        'customParameters[booking_token]' => sanitize_text_field($booking_token),
+        'customParameters[booking_type]' => sanitize_text_field($booking_type),
+    ];
+
+    tanafs_log_payment('initiation_requested', [
+        'event' => 'initiation_requested',
         'booking_token' => $booking_token,
-        'merchant_reference' => $merchant_reference,
-        'amount' => $amount,
+        'booking_type' => $booking_type,
+        'transaction_id' => $transaction_id,
+        'amount' => $amount_formatted,
         'currency' => $currency,
     ]);
-    
-    // Return APS checkout form URL and parameters
-    // The frontend will auto-submit a form to redirect to APS
+
+    $response = wp_remote_post(
+        tanafs_hyperpay_get_checkout_endpoint(),
+        [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $access_token,
+                'Content-Type' => 'application/x-www-form-urlencoded',
+            ],
+            'body' => $request_body,
+            'timeout' => 25,
+        ]
+    );
+
+    if (is_wp_error($response)) {
+        $table_name = $wpdb->prefix . 'tanafs_payments';
+        $wpdb->update(
+            $table_name,
+            [
+                'status' => 'failed',
+                'payment_status' => 'failed',
+                'aps_response_message' => sanitize_text_field($response->get_error_message()),
+            ],
+            ['transaction_id' => $transaction_id],
+            ['%s', '%s', '%s'],
+            ['%s']
+        );
+
+        tanafs_log_payment('initiation_failed', [
+            'event' => 'initiation_failed',
+            'reason' => 'gateway_request_error',
+            'booking_token' => $booking_token,
+            'booking_type' => $booking_type,
+            'transaction_id' => $transaction_id,
+            'error' => $response->get_error_message(),
+        ]);
+
+        return [
+            'success' => false,
+            'error' => 'Unable to connect to payment gateway. Please try again.',
+        ];
+    }
+
+    $status_code = wp_remote_retrieve_response_code($response);
+    $response_body = wp_remote_retrieve_body($response);
+    $decoded = json_decode($response_body, true);
+
+    if ($status_code < 200 || $status_code >= 300 || empty($decoded['id'])) {
+        $table_name = $wpdb->prefix . 'tanafs_payments';
+        $wpdb->update(
+            $table_name,
+            [
+                'status' => 'failed',
+                'payment_status' => 'failed',
+                'response_data' => $response_body,
+            ],
+            ['transaction_id' => $transaction_id],
+            ['%s', '%s', '%s'],
+            ['%s']
+        );
+
+        tanafs_log_payment('initiation_failed', [
+            'event' => 'initiation_failed',
+            'reason' => 'gateway_response_invalid',
+            'booking_token' => $booking_token,
+            'booking_type' => $booking_type,
+            'transaction_id' => $transaction_id,
+            'http_status' => $status_code,
+            'response' => $decoded,
+        ]);
+
+        return [
+            'success' => false,
+            'error' => 'Payment gateway rejected checkout creation.',
+        ];
+    }
+
+    $checkout_id = sanitize_text_field($decoded['id']);
+    $table_name = $wpdb->prefix . 'tanafs_payments';
+    $wpdb->update(
+        $table_name,
+        [
+            'hyperpay_checkout_id' => $checkout_id,
+            'response_data' => $response_body,
+        ],
+        ['transaction_id' => $transaction_id],
+        ['%s', '%s'],
+        ['%s']
+    );
+
+    $widget_url = tanafs_hyperpay_get_base_url() . '/v1/paymentWidgets.js?checkoutId=' . rawurlencode($checkout_id);
+
+    tanafs_log_payment('initiation_created', [
+        'event' => 'initiation_created',
+        'booking_token' => $booking_token,
+        'booking_type' => $booking_type,
+        'transaction_id' => $transaction_id,
+        'checkout_id' => $checkout_id,
+    ]);
+
     return [
         'success' => true,
-        'redirect_url' => tanafs_aps_get_endpoint(),
-        'params' => $params,
-        'merchant_reference' => $merchant_reference,
+        'checkout_id' => $checkout_id,
+        'widget_url' => $widget_url,
+        'transaction_id' => $transaction_id,
+        'return_url' => $return_url,
     ];
+}
+
+/**
+ * Map HyperPay result code to internal status.
+ *
+ * @param string $result_code HyperPay result code.
+ * @return string pending|complete|failed
+ */
+function tanafs_hyperpay_map_result_status($result_code) {
+    $result_code = (string) $result_code;
+
+    if (preg_match('/^(000\.000\.|000\.100\.1|000\.[36])/', $result_code)) {
+        return 'complete';
+    }
+
+    if (preg_match('/^(000\.200)/', $result_code)) {
+        return 'pending';
+    }
+
+    return 'failed';
+}
+
+/**
+ * Verify HyperPay payment status using status endpoint.
+ *
+ * @param array $args Verification context.
+ * @return array
+ */
+function tanafs_hyperpay_verify_payment($args = []) {
+    $entity_id = get_option('tanafs_hyperpay_entity_id', '');
+    $access_token = get_option('tanafs_hyperpay_access_token', '');
+
+    if (empty($entity_id) || empty($access_token)) {
+        return [
+            'success' => false,
+            'message' => 'HyperPay credentials are missing',
+        ];
+    }
+
+    $resource_path = sanitize_text_field($args['resource_path'] ?? '');
+    $checkout_id = sanitize_text_field($args['checkout_id'] ?? '');
+
+    if (!empty($resource_path)) {
+        $endpoint = tanafs_hyperpay_get_status_endpoint($resource_path);
+    } elseif (!empty($checkout_id)) {
+        $endpoint = tanafs_hyperpay_get_base_url() . '/v1/checkouts/' . rawurlencode($checkout_id) . '/payment';
+    } else {
+        return [
+            'success' => false,
+            'message' => 'No payment reference for verification',
+        ];
+    }
+
+    $endpoint = add_query_arg(['entityId' => $entity_id], $endpoint);
+
+    tanafs_log_payment('verification_requested', [
+        'event' => 'verification_requested',
+        'booking_token' => $args['booking_token'] ?? '',
+        'booking_type' => $args['booking_type'] ?? '',
+        'checkout_id' => $checkout_id,
+        'resource_path' => $resource_path,
+        'endpoint' => $endpoint,
+    ]);
+
+    $response = wp_remote_get(
+        $endpoint,
+        [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $access_token,
+            ],
+            'timeout' => 25,
+        ]
+    );
+
+    if (is_wp_error($response)) {
+        return [
+            'success' => false,
+            'message' => $response->get_error_message(),
+        ];
+    }
+
+    $status_code = (int) wp_remote_retrieve_response_code($response);
+    $body = wp_remote_retrieve_body($response);
+    $decoded = json_decode($body, true);
+
+    if ($status_code < 200 || $status_code >= 300 || !is_array($decoded)) {
+        return [
+            'success' => false,
+            'message' => 'Invalid verification response',
+            'http_status' => $status_code,
+            'response_raw' => $body,
+        ];
+    }
+
+    $result_code = sanitize_text_field($decoded['result']['code'] ?? '');
+    $internal_status = tanafs_hyperpay_map_result_status($result_code);
+    $payment_id = sanitize_text_field($decoded['id'] ?? '');
+
+    tanafs_log_payment('verification_result', [
+        'event' => 'verification_result',
+        'booking_token' => $args['booking_token'] ?? '',
+        'booking_type' => $args['booking_type'] ?? '',
+        'checkout_id' => $checkout_id,
+        'transaction_id' => $payment_id,
+        'result_code' => $result_code,
+        'internal_status' => $internal_status,
+    ]);
+
+    return [
+        'success' => true,
+        'payment_status' => $internal_status,
+        'result_code' => $result_code,
+        'transaction_id' => $payment_id,
+        'response_data' => $decoded,
+        'resource_path' => sanitize_text_field($decoded['id'] ?? $resource_path),
+    ];
+}
+
+/**
+ * Locate payment row by available identifiers.
+ *
+ * @param array $identifiers Search context.
+ * @return object|null
+ */
+function tanafs_find_payment_record($identifiers = []) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'tanafs_payments';
+
+    $booking_token = sanitize_text_field($identifiers['booking_token'] ?? '');
+    $booking_type = sanitize_text_field($identifiers['booking_type'] ?? '');
+    $transaction_id = sanitize_text_field($identifiers['transaction_id'] ?? '');
+    $checkout_id = sanitize_text_field($identifiers['checkout_id'] ?? '');
+
+    if (!empty($booking_token) && !empty($booking_type)) {
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table_name} WHERE booking_token = %s AND booking_type = %s ORDER BY id DESC LIMIT 1",
+            $booking_token,
+            $booking_type
+        ));
+    }
+
+    if (!empty($booking_token)) {
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table_name} WHERE booking_token = %s ORDER BY id DESC LIMIT 1",
+            $booking_token
+        ));
+    }
+
+    if (!empty($transaction_id)) {
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table_name} WHERE transaction_id = %s OR booking_reference = %s ORDER BY id DESC LIMIT 1",
+            $transaction_id,
+            $transaction_id
+        ));
+    }
+
+    if (!empty($checkout_id)) {
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table_name} WHERE hyperpay_checkout_id = %s ORDER BY id DESC LIMIT 1",
+            $checkout_id
+        ));
+    }
+
+    return null;
+}
+
+/**
+ * Apply payment status transition safely and keep status mirrors in sync.
+ *
+ * @param object $payment Existing payment row.
+ * @param string $new_status New internal status.
+ * @param array  $verification Verification response data.
+ * @return bool
+ */
+function tanafs_apply_payment_transition($payment, $new_status, $verification = []) {
+    global $wpdb;
+
+    if (!$payment) {
+        return false;
+    }
+
+    $table_name = $wpdb->prefix . 'tanafs_payments';
+    $transaction_id = sanitize_text_field($verification['transaction_id'] ?? '');
+    $response_data = isset($verification['response_data']) ? wp_json_encode($verification['response_data']) : '';
+
+    $update_data = [
+        'status' => $new_status,
+        'payment_status' => $new_status,
+    ];
+    $formats = ['%s', '%s'];
+
+    if (!empty($response_data)) {
+        $update_data['response_data'] = $response_data;
+        $formats[] = '%s';
+    }
+
+    // Keep old merchant reference in booking_reference while setting transaction_id to HyperPay payment id.
+    if (!empty($transaction_id) && $transaction_id !== $payment->transaction_id) {
+        $existing = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table_name} WHERE transaction_id = %s AND id != %d",
+            $transaction_id,
+            (int) $payment->id
+        ));
+
+        if ($existing === 0) {
+            $update_data['booking_reference'] = $payment->transaction_id;
+            $update_data['transaction_id'] = $transaction_id;
+            $formats[] = '%s';
+            $formats[] = '%s';
+        }
+    }
+
+    $updated = $wpdb->update(
+        $table_name,
+        $update_data,
+        ['id' => (int) $payment->id],
+        $formats,
+        ['%d']
+    );
+
+    if ($updated !== false) {
+        tanafs_log_payment('status_transition', [
+            'event' => 'status_transition',
+            'booking_token' => $payment->booking_token,
+            'booking_type' => $payment->booking_type,
+            'from_status' => $payment->payment_status,
+            'to_status' => $new_status,
+            'checkout_id' => $payment->hyperpay_checkout_id,
+            'transaction_id' => !empty($transaction_id) ? $transaction_id : $payment->transaction_id,
+        ]);
+    }
+
+    return ($updated !== false);
 }
 
 /**
@@ -838,150 +1205,239 @@ add_filter('query_vars', 'tanafs_payment_query_vars');
 // ============================================================================
 
 /**
- * Handle APS IPN/webhook callback
- * 
- * CRITICAL: This is the single source of truth for payment confirmation
- * - Verifies signature to ensure authenticity
- * - Updates payment status in database
- * - Routes to module-specific booking fulfillment based on booking_type
- * - Idempotent: safe to call multiple times with same data
+ * Handle HyperPay webhook callback.
  */
 function tanafs_handle_payment_callback() {
     if (get_query_var('payment_callback')) {
-        global $wpdb;
-        
-        // Get callback data (APS sends POST data)
-        $callback_data = $_POST;
-        
-        error_log('=== TANAFS APS IPN CALLBACK RECEIVED ===');
-        tanafs_log_payment('callback_raw', $callback_data);
-        
-        // Validate signature
-        if (!isset($callback_data['signature'])) {
-            error_log('APS IPN ERROR: No signature in callback');
-            tanafs_log_payment('callback_error', ['error' => 'No signature']);
-            http_response_code(400);
-            exit;
-        }
-        
-        $received_signature = $callback_data['signature'];
-        $calculated_signature = tanafs_aps_calculate_signature($callback_data, true);
-        
-        if ($received_signature !== $calculated_signature) {
-            error_log('APS IPN ERROR: Signature verification failed');
-            tanafs_log_payment('callback_error', [
-                'error' => 'Signature mismatch',
-                'received' => $received_signature,
-                'calculated' => $calculated_signature,
-            ]);
-            http_response_code(403);
-            exit;
-        }
-        
-        // Extract key fields
-        $merchant_reference = sanitize_text_field($callback_data['merchant_reference'] ?? '');
-        $response_code = sanitize_text_field($callback_data['response_code'] ?? '');
-        $response_message = sanitize_text_field($callback_data['response_message'] ?? '');
-        $fort_id = sanitize_text_field($callback_data['fort_id'] ?? ''); // APS transaction ID
-        $status = sanitize_text_field($callback_data['status'] ?? '');
-        $payment_method = sanitize_text_field($callback_data['payment_option'] ?? '');
-        
-        if (empty($merchant_reference)) {
-            error_log('APS IPN ERROR: No merchant_reference in callback');
-            http_response_code(400);
-            exit;
-        }
-        
-        // Get payment record from database
-        $table_name = $wpdb->prefix . 'tanafs_payments';
-        $payment = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$table_name} WHERE transaction_id = %s",
-            $merchant_reference
-        ));
-        
-        if (!$payment) {
-            error_log('APS IPN ERROR: Payment record not found: ' . $merchant_reference);
-            tanafs_log_payment('callback_error', [
-                'error' => 'Payment not found',
-                'merchant_reference' => $merchant_reference,
-            ]);
-            http_response_code(404);
-            exit;
-        }
-        
-        // Check for duplicate processing (idempotency)
-        if ($payment->payment_status === 'complete') {
-            error_log('APS IPN: Payment already processed (idempotent): ' . $merchant_reference);
-            echo 'OK'; // Acknowledge to prevent retries
-            exit;
-        }
-        
-        // Determine payment status from APS response
-        // Response codes: 14000 = Success, others = failure
-        $new_status = 'failed';
-        if ($status === '14' || $response_code === '14000') {
-            $new_status = 'complete';
-        }
-        
-        // Update payment record
-        $update_data = [
-            'payment_status' => $new_status,
-            'aps_response_code' => $response_code,
-            'aps_response_message' => $response_message,
-            'payment_method' => $payment_method,
-            'response_data' => json_encode($callback_data),
-        ];
-        
-        $wpdb->update(
-            $table_name,
-            $update_data,
-            ['transaction_id' => $merchant_reference],
-            ['%s', '%s', '%s', '%s', '%s'],
-            ['%s']
+        $raw_body = file_get_contents('php://input');
+        $decoded = json_decode($raw_body, true);
+        $callback_data = is_array($decoded) ? $decoded : $_REQUEST;
+
+        $resource_path = sanitize_text_field($callback_data['resourcePath'] ?? ($callback_data['resource_path'] ?? ''));
+        $checkout_id = sanitize_text_field($callback_data['id'] ?? ($callback_data['checkoutId'] ?? ''));
+        $transaction_id = sanitize_text_field($callback_data['merchantTransactionId'] ?? '');
+        $booking_token = sanitize_text_field(
+            $callback_data['customParameters']['booking_token']
+            ?? $callback_data['customParameters[booking_token]']
+            ?? ''
         );
-        
-        tanafs_log_payment('callback_processed', [
-            'merchant_reference' => $merchant_reference,
-            'status' => $new_status,
-            'response_code' => $response_code,
-            'booking_type' => $payment->booking_type,
+        $booking_type = sanitize_text_field(
+            $callback_data['customParameters']['booking_type']
+            ?? $callback_data['customParameters[booking_type]']
+            ?? ''
+        );
+
+        tanafs_log_payment('webhook_received', [
+            'event' => 'webhook_received',
+            'booking_token' => $booking_token,
+            'booking_type' => $booking_type,
+            'checkout_id' => $checkout_id,
+            'transaction_id' => $transaction_id,
+            'resource_path' => $resource_path,
         ]);
-        
-        // Process booking fulfillment if payment successful
-        if ($new_status === 'complete') {
-            error_log('APS IPN: Payment APPROVED - fulfilling booking: ' . $payment->booking_token);
-            
-            // Route to module-specific fulfillment based on booking_type
-            $fulfillment_result = tanafs_fulfill_booking_from_ipn($payment->booking_token, $payment->booking_type, $callback_data);
-            
-            if (!$fulfillment_result['success']) {
-                error_log('APS IPN ERROR: Booking fulfillment failed: ' . $fulfillment_result['message']);
-                
-                // Send admin notification
-                wp_mail(
-                    get_option('admin_email'),
-                    '[URGENT] Tanafs Payment IPN - Booking Fulfillment Failed',
-                    "A payment was successful but booking fulfillment failed.\n\n" .
-                    "Booking Type: {$payment->booking_type}\n" .
-                    "Booking Token: {$payment->booking_token}\n" .
-                    "Transaction ID: {$merchant_reference}\n" .
-                    "Customer: {$payment->customer_name} ({$payment->customer_email})\n" .
-                    "Amount: {$payment->currency} {$payment->amount}\n\n" .
-                    "Error: {$fulfillment_result['message']}\n\n" .
-                    "Please manually process this booking in WordPress admin.",
-                    ['Content-Type: text/plain; charset=UTF-8']
-                );
-            }
-        } else {
-            error_log('APS IPN: Payment FAILED - ' . $response_message);
+
+        $payment = tanafs_find_payment_record([
+            'booking_token' => $booking_token,
+            'booking_type' => $booking_type,
+            'transaction_id' => $transaction_id,
+            'checkout_id' => $checkout_id,
+        ]);
+
+        if (!$payment) {
+            http_response_code(404);
+            echo wp_json_encode(['status' => 'not_found']);
+            exit;
         }
-        
-        // Acknowledge receipt to APS
-        echo 'OK';
+
+        if ($payment->payment_status === 'complete') {
+            echo wp_json_encode(['status' => 'already_complete']);
+            exit;
+        }
+
+        $verification = tanafs_hyperpay_verify_payment([
+            'booking_token' => $payment->booking_token,
+            'booking_type' => $payment->booking_type,
+            'resource_path' => $resource_path,
+            'checkout_id' => !empty($payment->hyperpay_checkout_id) ? $payment->hyperpay_checkout_id : $checkout_id,
+        ]);
+
+        if (!$verification['success']) {
+            tanafs_log_payment('webhook_verified', [
+                'event' => 'webhook_verified',
+                'booking_token' => $payment->booking_token,
+                'booking_type' => $payment->booking_type,
+                'checkout_id' => $payment->hyperpay_checkout_id,
+                'verification_success' => false,
+                'message' => $verification['message'] ?? 'verification_failed',
+            ]);
+            http_response_code(400);
+            echo wp_json_encode(['status' => 'verification_failed']);
+            exit;
+        }
+
+        $new_status = $verification['payment_status'];
+        tanafs_apply_payment_transition($payment, $new_status, $verification);
+
+        tanafs_log_payment('webhook_verified', [
+            'event' => 'webhook_verified',
+            'booking_token' => $payment->booking_token,
+            'booking_type' => $payment->booking_type,
+            'checkout_id' => $payment->hyperpay_checkout_id,
+            'transaction_id' => $verification['transaction_id'] ?? $payment->transaction_id,
+            'verification_success' => true,
+            'status' => $new_status,
+        ]);
+
+        if ($new_status === 'complete') {
+            $fulfillment_result = tanafs_fulfill_booking_from_ipn($payment->booking_token, $payment->booking_type, $verification['response_data'] ?? []);
+            tanafs_log_payment('fulfillment_result', [
+                'event' => 'fulfillment_result',
+                'booking_token' => $payment->booking_token,
+                'booking_type' => $payment->booking_type,
+                'success' => !empty($fulfillment_result['success']),
+                'message' => $fulfillment_result['message'] ?? '',
+            ]);
+        }
+
+        echo wp_json_encode(['status' => 'received']);
         exit;
     }
 }
 add_action('template_redirect', 'tanafs_handle_payment_callback', 5);
+
+/**
+ * Shared verification handler used by module return flows.
+ *
+ * @param string $expected_booking_type Booking type.
+ */
+function tanafs_ajax_verify_payment_status($expected_booking_type) {
+    $booking_token = sanitize_text_field($_POST['booking_token'] ?? ($_POST['token'] ?? ''));
+    $resource_path = sanitize_text_field($_POST['resourcePath'] ?? ($_GET['resourcePath'] ?? ''));
+
+    if (empty($booking_token)) {
+        wp_send_json_error([
+            'code' => 'session_not_found',
+            'message' => 'Booking token is missing',
+        ]);
+        return;
+    }
+
+    $payment = tanafs_find_payment_record([
+        'booking_token' => $booking_token,
+        'booking_type' => $expected_booking_type,
+    ]);
+
+    if (!$payment) {
+        wp_send_json_error([
+            'code' => 'session_not_found',
+            'message' => 'Booking session not found. Please restart registration.',
+        ]);
+        return;
+    }
+
+    if (empty($resource_path) && empty($payment->hyperpay_checkout_id)) {
+        wp_send_json_error([
+            'status' => 'pending',
+            'message' => 'Payment reference not available yet. Please try again shortly.',
+        ]);
+        return;
+    }
+
+    if ($payment->payment_status === 'complete') {
+        wp_send_json_success([
+            'status' => 'completed',
+            'payment_status' => 'completed',
+            'booking_token' => $payment->booking_token,
+            'payment_verified' => true,
+            'redirect_url' => ($expected_booking_type === 'therapy')
+                ? (function_exists('pll_current_language') && pll_current_language() === 'ar' ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/'))
+                : '',
+        ]);
+        return;
+    }
+
+    $verification = tanafs_hyperpay_verify_payment([
+        'booking_token' => $payment->booking_token,
+        'booking_type' => $payment->booking_type,
+        'resource_path' => $resource_path,
+        'checkout_id' => $payment->hyperpay_checkout_id,
+    ]);
+
+    if (!$verification['success']) {
+        wp_send_json_error([
+            'status' => 'pending',
+            'message' => 'Could not verify payment yet. Please try again.',
+        ]);
+        return;
+    }
+
+    $new_status = $verification['payment_status'];
+    tanafs_apply_payment_transition($payment, $new_status, $verification);
+
+    if ($new_status === 'complete') {
+        $fulfillment_result = tanafs_fulfill_booking_from_ipn($payment->booking_token, $payment->booking_type, $verification['response_data'] ?? []);
+        tanafs_log_payment('fulfillment_result', [
+            'event' => 'fulfillment_result',
+            'booking_token' => $payment->booking_token,
+            'booking_type' => $payment->booking_type,
+            'success' => !empty($fulfillment_result['success']),
+            'message' => $fulfillment_result['message'] ?? '',
+        ]);
+
+        if (empty($fulfillment_result['success'])) {
+            wp_send_json_error([
+                'status' => 'completed',
+                'message' => 'Payment verified but booking fulfillment failed. Please contact support.',
+            ]);
+            return;
+        }
+
+        wp_send_json_success([
+            'status' => 'completed',
+            'payment_status' => 'completed',
+            'booking_token' => $payment->booking_token,
+            'redirect_url' => ($expected_booking_type === 'therapy')
+                ? (function_exists('pll_current_language') && pll_current_language() === 'ar' ? home_url('/thank-you-arabic/') : home_url('/en/thank-you/'))
+                : '',
+            'payment_verified' => true,
+        ]);
+        return;
+    }
+
+    if ($new_status === 'failed') {
+        wp_send_json_error([
+            'status' => 'failed',
+            'payment_status' => 'failed',
+            'message' => 'Payment failed or was declined.',
+        ]);
+        return;
+    }
+
+    wp_send_json_error([
+        'status' => 'pending',
+        'payment_status' => 'pending',
+        'message' => 'Payment is still pending. Please wait and retry.',
+    ]);
+}
+
+add_action('wp_ajax_tanafs_verify_therapy_payment', function () {
+    tanafs_ajax_verify_payment_status('therapy');
+});
+add_action('wp_ajax_nopriv_tanafs_verify_therapy_payment', function () {
+    tanafs_ajax_verify_payment_status('therapy');
+});
+add_action('wp_ajax_tanafs_verify_retreat_payment', function () {
+    tanafs_ajax_verify_payment_status('retreat');
+});
+add_action('wp_ajax_nopriv_tanafs_verify_retreat_payment', function () {
+    tanafs_ajax_verify_payment_status('retreat');
+});
+add_action('wp_ajax_tanafs_verify_academy_payment', function () {
+    tanafs_ajax_verify_payment_status('academy');
+});
+add_action('wp_ajax_nopriv_tanafs_verify_academy_payment', function () {
+    tanafs_ajax_verify_payment_status('academy');
+});
 
 /**
  * Route booking fulfillment to appropriate module handler
@@ -1106,8 +1562,8 @@ function tanafs_ajax_initiate_therapy_payment() {
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
     $return_url = ($lang === 'ar') ? home_url('/register-arabic/') : home_url('/en/register/');
     
-    // Initiate payment
-    $result = tanafs_aps_initiate_payment(
+    // Initiate HyperPay checkout
+    $result = tanafs_hyperpay_create_checkout(
         $booking_token,
         'therapy',
         $booking_data['amount'],
@@ -1120,8 +1576,11 @@ function tanafs_ajax_initiate_therapy_payment() {
     
     if ($result['success']) {
         wp_send_json_success([
-            'redirect_url' => $result['redirect_url'],
-            'params' => $result['params'],
+            'gateway' => 'hyperpay',
+            'checkout_id' => $result['checkout_id'],
+            'widget_url' => $result['widget_url'],
+            'result_url' => $result['return_url'],
+            'transaction_id' => $result['transaction_id'],
         ]);
     } else {
         wp_send_json_error(['message' => $result['error']]);
@@ -1141,7 +1600,7 @@ function tanafs_ajax_initiate_retreat_payment() {
         return;
     }
     
-    $booking_token = sanitize_text_field($_POST['booking_token'] ?? '');
+    $booking_token = sanitize_text_field($_POST['booking_token'] ?? ($_POST['token'] ?? ''));
     if (empty($booking_token)) {
         wp_send_json_error(['message' => 'Invalid booking session']);
         return;
@@ -1171,8 +1630,8 @@ function tanafs_ajax_initiate_retreat_payment() {
     
     $retreat_page_url = $booking_data['retreat_page_url'] ?? home_url('/retreats/');
     
-    // Initiate payment
-    $result = tanafs_aps_initiate_payment(
+    // Initiate HyperPay checkout
+    $result = tanafs_hyperpay_create_checkout(
         $booking_token,
         'retreat',
         $booking_data['amount'],
@@ -1185,8 +1644,11 @@ function tanafs_ajax_initiate_retreat_payment() {
     
     if ($result['success']) {
         wp_send_json_success([
-            'redirect_url' => $result['redirect_url'],
-            'params' => $result['params'],
+            'gateway' => 'hyperpay',
+            'checkout_id' => $result['checkout_id'],
+            'widget_url' => $result['widget_url'],
+            'result_url' => $result['return_url'],
+            'transaction_id' => $result['transaction_id'],
         ]);
     } else {
         wp_send_json_error(['message' => $result['error']]);
@@ -1254,22 +1716,25 @@ function tanafs_ajax_initiate_therapy_payment_logged_in() {
     $lang = function_exists('pll_current_language') ? pll_current_language() : 'en';
     $return_url = ($lang === 'ar') ? home_url('/register-arabic/') : home_url('/en/register/');
     
-    // Initiate payment
-    $result = tanafs_aps_initiate_payment(
+    // Initiate HyperPay checkout
+    $result = tanafs_hyperpay_create_checkout(
         $booking_token,
         'therapy',
         $therapy_price,
         $customer_details,
         [
-            'currency' => get_option('tanafs_aps_currency', 'SAR'),
+            'currency' => get_option('tanafs_hyperpay_currency', get_option('tanafs_aps_currency', 'SAR')),
             'return_url' => $return_url,
         ]
     );
     
     if ($result['success']) {
         wp_send_json_success([
-            'redirect_url' => $result['redirect_url'],
-            'params' => $result['params'],
+            'gateway' => 'hyperpay',
+            'checkout_id' => $result['checkout_id'],
+            'widget_url' => $result['widget_url'],
+            'result_url' => $result['return_url'],
+            'transaction_id' => $result['transaction_id'],
         ]);
     } else {
         wp_send_json_error(['message' => $result['error']]);
@@ -1339,8 +1804,8 @@ function tanafs_ajax_initiate_academy_payment() {
         'phone' => $phone,
     ];
     
-    // Initiate payment
-    $result = tanafs_aps_initiate_payment(
+    // Initiate HyperPay checkout
+    $result = tanafs_hyperpay_create_checkout(
         $booking_token,
         'academy',
         $amount,
@@ -1353,8 +1818,11 @@ function tanafs_ajax_initiate_academy_payment() {
     
     if ($result['success']) {
         wp_send_json_success([
-            'redirect_url' => $result['redirect_url'],
-            'params' => $result['params'],
+            'gateway' => 'hyperpay',
+            'checkout_id' => $result['checkout_id'],
+            'widget_url' => $result['widget_url'],
+            'result_url' => $result['return_url'],
+            'transaction_id' => $result['transaction_id'],
         ]);
     } else {
         wp_send_json_error(['message' => $result['error']]);
@@ -1362,115 +1830,12 @@ function tanafs_ajax_initiate_academy_payment() {
 }
 
 // ============================================================================
-// HELPER: AUTO-SUBMIT FORM FOR APS REDIRECT
+// HELPER NOTES
 // ============================================================================
 
 /**
- * Generate HTML form that auto-submits to APS checkout
- * Call this from your frontend JavaScript after receiving AJAX response
- * 
- * Example usage in JS:
- * 
- * $.post(ajaxurl, data, function(response) {
- *     if (response.success) {
- *         tanafs_redirect_to_aps(response.data.redirect_url, response.data.params);
- *     }
- * });
- * 
- * function tanafs_redirect_to_aps(url, params) {
- *     var form = $('<form method="POST" action="' + url + '"></form>');
- *     $.each(params, function(key, value) {
- *         form.append('<input type="hidden" name="' + key + '" value="' + value + '">');
- *     });
- *     $('body').append(form);
- *     form.submit();
- * }
+ * Shared fulfillment handlers remain in module files.
+ * Payment orchestration stays in this file.
  */
 
-// ============================================================================
-// SECTION 6: BOOKING FULFILLMENT PLACEHOLDER (ACADEMY)
-// ============================================================================
-
-/**
- * Process academy booking after successful payment
- * 
- * @param string $booking_token Unique booking identifier
- * @param array $payment_data APS callback data
- * @return array ['success' => bool, 'message' => string, 'user_id' => int|null]
- */
-function process_academy_booking_from_ipn($booking_token, $payment_data) {
-    global $wpdb;
-    
-    // Retrieve booking data from transient
-    $transient_key = 'academy_' . str_replace('academy_', '', $booking_token);
-    $booking_data = get_transient($transient_key);
-    
-    if (!$booking_data) {
-        return [
-            'success' => false,
-            'message' => 'Academy booking data not found',
-        ];
-    }
-    
-    // Check if user already registered to prevent duplicate enrollment
-    $existing_registration = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM {$wpdb->prefix}academy_registrations WHERE program_id = %d AND email = %s",
-        $booking_data['program_id'],
-        $booking_data['email']
-    ));
-    
-    if ($existing_registration) {
-        return [
-            'success' => true,
-            'message' => 'User already registered',
-            'user_id' => $existing_registration->user_id,
-        ];
-    }
-    
-    // Create or get WordPress user
-    $user = get_user_by('email', $booking_data['email']);
-    if (!$user) {
-        $user_id = wp_create_user(
-            sanitize_user($booking_data['email']),
-            wp_generate_password(12, true),
-            $booking_data['email']
-        );
-        
-        if (is_wp_error($user_id)) {
-            return [
-                'success' => false,
-                'message' => 'Failed to create user: ' . $user_id->get_error_message(),
-            ];
-        }
-    } else {
-        $user_id = $user->ID;
-    }
-    
-    // Insert academy registration
-    $wpdb->insert(
-        $wpdb->prefix . 'academy_registrations',
-        [
-            'program_id' => $booking_data['program_id'],
-            'user_id' => $user_id,
-            'full_name' => $booking_data['full_name'],
-            'email' => $booking_data['email'],
-            'phone' => $booking_data['phone'],
-            'job_title' => $booking_data['job_title'],
-            'license_number' => $booking_data['license_number'],
-            'country' => $booking_data['country'],
-            'registration_status' => 'registered',
-        ]
-    );
-    
-    // Send confirmation email
-    // (Add email sending logic here if needed)
-    
-    // Clean up transient
-    delete_transient($transient_key);
-    
-    return [
-        'success' => true,
-        'message' => 'Academy registration completed',
-        'user_id' => $user_id,
-    ];
-}
+// Academy fulfillment is implemented in `tanafs_academy.php` only.

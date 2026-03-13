@@ -2210,7 +2210,7 @@ function academy_phase1_shortcode()
 
                 var formData = $(this).serialize();
                 formData += '&action=tanafs_initiate_academy_payment';
-                // Pass the current page URL so APS can return here
+                // Pass the current page URL so gateway return can land here
                 formData += '&return_page_url=' + encodeURIComponent(window.location.origin + window.location.pathname);
 
                 const $btn = $(this).find('button[type="submit"]');
@@ -2223,9 +2223,8 @@ function academy_phase1_shortcode()
                     type: 'POST',
                     data: formData,
                     success: function(response) {
-                        if (response.success && response.data.redirect_url && response.data.params) {
-                            // Auto-submit form to redirect to APS payment page
-                            tanafsRedirectToAPS(response.data.redirect_url, response.data.params);
+                        if (response.success && response.data.gateway === 'hyperpay' && response.data.checkout_id && response.data.widget_url) {
+                            tanafsLaunchHyperPayCheckout(response.data);
                         } else {
                             $btn.prop('disabled', false).text('<?php echo esc_js(academy_get_text('submit_registration')); ?>');
                             $('#academy-register-result')
@@ -2244,23 +2243,20 @@ function academy_phase1_shortcode()
                 });
             });
 
-            // APS Payment redirect helper function
-            function tanafsRedirectToAPS(url, params) {
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = url;
-                form.style.display = 'none';
-                
-                Object.keys(params).forEach(function(key) {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = key;
-                    input.value = params[key];
-                    form.appendChild(input);
-                });
-                
-                document.body.appendChild(form);
-                form.submit();
+            function tanafsLaunchHyperPayCheckout(payload) {
+                const overlay = document.createElement('div');
+                overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
+                overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
+                    + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
+                    + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
+                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                    + '</div>';
+                document.body.appendChild(overlay);
+
+                const script = document.createElement('script');
+                script.src = payload.widget_url;
+                script.async = true;
+                document.body.appendChild(script);
             }
 
             // ── Payment return: detect ?payment_return=TOKEN in URL ──────────
@@ -2291,7 +2287,7 @@ function academy_phase1_shortcode()
                     url: '<?php echo admin_url('admin-ajax.php'); ?>',
                     type: 'POST',
                     data: {
-                        action: 'academy_verify_payment',
+                        action: 'tanafs_verify_academy_payment',
                         booking_token: paymentToken,
                         nonce: '<?php echo wp_create_nonce('academy_registration_nonce'); ?>'
                     },
@@ -2504,7 +2500,7 @@ function academy_details_shortcode($atts)
 }
 
 // ==========================================
-// PAYTABS PAYMENT INTEGRATION
+// SHARED PAYMENT TRANSIENT HELPERS
 // ==========================================
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -2561,241 +2557,7 @@ function academy_booking_delete($transient_key)
 }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// AJAX: Initiate PayTabs payment for an academy registration
-//
-// Called by the frontend form.  Saves the form data to a durable transient,
-// then delegates to the shared paytabs_initiate_payment() function from
-// retreat/retreat_paytabs_integration.php and returns the HPP redirect URL.
-// ────────────────────────────────────────────────────────────────────────────
-
-add_action('wp_ajax_academy_initiate_payment',        'ajax_academy_initiate_payment');
-add_action('wp_ajax_nopriv_academy_initiate_payment', 'ajax_academy_initiate_payment');
-
-if (!function_exists('ajax_academy_initiate_payment')) {
-function ajax_academy_initiate_payment()
-{
-    // Nonce check
-    if (!isset($_POST['academy_nonce']) || !wp_verify_nonce($_POST['academy_nonce'], 'academy_registration_nonce')) {
-        wp_send_json_error('Security verification failed');
-        return;
-    }
-
-    // Validate required fields
-    $program_id      = intval($_POST['program_id']      ?? 0);
-    $full_name       = sanitize_text_field($_POST['full_name']       ?? '');
-    $email           = sanitize_email($_POST['email']           ?? '');
-    $phone           = sanitize_text_field($_POST['phone']           ?? '');
-    $job_title       = sanitize_text_field($_POST['job_title']       ?? '');
-    $license_number  = sanitize_text_field($_POST['license_number']  ?? '');
-    $country         = sanitize_text_field($_POST['country']         ?? '');
-    $return_page_url = esc_url_raw($_POST['return_page_url']         ?? home_url('/'));
-
-    if (!$program_id || empty($full_name) || empty($email)) {
-        wp_send_json_error('Please fill in all required fields');
-        return;
-    }
-
-    if (!is_email($email)) {
-        wp_send_json_error('Invalid email address');
-        return;
-    }
-
-    // Verify program exists
-    global $wpdb;
-    $programs_table = $wpdb->prefix . 'academy_programs';
-    $program = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$programs_table} WHERE id = %d AND is_active = 1", $program_id));
-    if (!$program) {
-        wp_send_json_error('Invalid program selected');
-        return;
-    }
-
-    // Check if PayTabs core functions are available
-    if (!function_exists('paytabs_initiate_payment')) {
-        error_log('[Academy Payment] ERROR: paytabs_initiate_payment() not found. Ensure retreat_paytabs_integration.php loads first.');
-        wp_send_json_error('Payment system not configured. Please contact support.');
-        return;
-    }
-
-    // Check if already registered (prevent double-payment)
-    $registrations_table = $wpdb->prefix . 'academy_registrations';
-    $existing = $wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM {$registrations_table} WHERE program_id = %d AND email = %s",
-        $program_id, $email
-    ));
-    if ($existing > 0) {
-        wp_send_json_error('You are already registered for this program');
-        return;
-    }
-
-    // Registration fee — configurable via WP admin option; falls back to 500 SAR
-    $amount = floatval(get_option('academy_program_price_' . $program_id, get_option('academy_registration_fee', 500)));
-
-    // Generate a unique booking token (prefix 'academy_' for IPN routing)
-    $booking_token = 'academy_' . bin2hex(random_bytes(16));
-    $transient_key = 'academy_' . str_replace('academy_', '', $booking_token);
-
-    $booking_data = [
-        'booking_token'  => $booking_token,
-        'program_id'     => $program_id,
-        'program_name'   => $program->program_name,
-        'full_name'      => $full_name,
-        'email'          => $email,
-        'phone'          => $phone,
-        'job_title'      => $job_title,
-        'license_number' => $license_number,
-        'country'        => $country,
-        'user_id'        => is_user_logged_in() ? get_current_user_id() : 0,
-        'amount'         => $amount,
-        'currency'       => get_option('paytabs_currency', 'SAR'),
-        'booking_state'  => 'pending_payment',
-        'created_at'     => current_time('mysql'),
-        'ip_address'     => $_SERVER['REMOTE_ADDR'] ?? '',
-    ];
-
-    academy_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
-
-    // Determine customer name parts for PayTabs
-    $name_parts = explode(' ', $full_name, 2);
-
-    $customer_details = [
-        'name'    => $full_name ?: 'Registrant',
-        'email'   => $email,
-        'phone'   => !empty($phone) ? $phone : '0000000000',
-        'street1' => 'N/A',
-        'city'    => 'N/A',
-        'state'   => 'N/A',
-        'country' => 'SA', // PayTabs requires ISO 3166-1 alpha-2; keep default SA
-        'zip'     => '00000',
-    ];
-
-    $result = paytabs_initiate_payment(
-        $booking_token,
-        $amount,
-        $customer_details,
-        [
-            'currency'         => get_option('paytabs_currency', 'SAR'),
-            'description'      => 'Tanafs Academy - ' . $program->program_name,
-            'retreat_page_url' => $return_page_url, // return here after payment
-        ]
-    );
-
-    if ($result['success']) {
-        // Update stored data with transaction reference
-        $booking_data['tran_ref']          = $result['tran_ref'] ?? '';
-        $booking_data['payment_initiated'] = true;
-        academy_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
-
-        error_log('[Academy Payment] Initiated. token=' . $booking_token . ', program=' . $program_id . ', email=' . $email);
-
-        wp_send_json_success([
-            'redirect_url' => $result['redirect_url'],
-            'tran_ref'     => $result['tran_ref'] ?? '',
-        ]);
-    } else {
-        error_log('[Academy Payment] Initiation failed: ' . ($result['error'] ?? 'unknown'));
-        wp_send_json_error($result['error'] ?? 'Failed to connect to payment gateway');
-    }
-}
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// AJAX: Verify payment and complete academy registration
-//
-// Called by the frontend on return from PayTabs HPP.  Checks payment status
-// (first from stored booking_state set by IPN, then via API if needed) and,
-// on success, inserts the DB registration record and sends the confirmation email.
-// ────────────────────────────────────────────────────────────────────────────
-
-add_action('wp_ajax_academy_verify_payment',        'ajax_academy_verify_payment');
-add_action('wp_ajax_nopriv_academy_verify_payment', 'ajax_academy_verify_payment');
-
-if (!function_exists('ajax_academy_verify_payment')) {
-function ajax_academy_verify_payment()
-{
-    $booking_token = sanitize_text_field($_POST['booking_token'] ?? '');
-    $nonce_valid   = isset($_POST['nonce']) && wp_verify_nonce($_POST['nonce'], 'academy_registration_nonce');
-
-    // Token-based auth fallback (nonce may fail after cross-site redirect)
-    if (!$nonce_valid) {
-        if (empty($booking_token)
-            || strpos($booking_token, 'academy_') !== 0
-            || strlen($booking_token) < 40
-        ) {
-            wp_send_json_error('Security verification failed');
-            return;
-        }
-        error_log('[Academy Verify] Nonce failed — using token-based auth for: ' . substr($booking_token, 0, 24) . '...');
-    }
-
-    if (empty($booking_token)) {
-        wp_send_json_error('Invalid booking session');
-        return;
-    }
-
-    $transient_key = 'academy_' . str_replace('academy_', '', $booking_token);
-    $booking_data  = academy_booking_get($transient_key);
-
-    if (!$booking_data) {
-        wp_send_json_error('Booking session not found or expired. Please try registering again.');
-        return;
-    }
-
-    // ── Case 1: Already completed by IPN ────────────────────────────────────
-    if (isset($booking_data['booking_state']) && $booking_data['booking_state'] === 'booking_confirmed') {
-        error_log('[Academy Verify] Already confirmed by IPN for token: ' . $booking_token);
-        wp_send_json_success(['message' => 'Registration successful! You will receive a confirmation email shortly.']);
-        return;
-    }
-
-    // ── Case 2: IPN marked payment as completed but registration pending ────
-    $booking_state  = $booking_data['booking_state']  ?? '';
-    $payment_status = $booking_data['payment_status'] ?? '';
-
-    if ($booking_state === 'payment_completed' || $payment_status === 'completed') {
-        $reg_result = academy_complete_registration($booking_data, $booking_token);
-        if ($reg_result['success']) {
-            $booking_data['booking_state'] = 'booking_confirmed';
-            academy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
-            wp_send_json_success(['message' => 'Registration successful! You will receive a confirmation email shortly.']);
-        } else {
-            wp_send_json_error($reg_result['message']);
-        }
-        return;
-    }
-
-    // ── Case 3: Verify via PayTabs API (IPN may not have arrived yet) ────────
-    if (!empty($booking_data['tran_ref']) && function_exists('paytabs_verify_payment')) {
-        $verification = paytabs_verify_payment($booking_data['tran_ref']);
-
-        if ($verification['success'] && isset($verification['status']) && $verification['status'] === 'approved') {
-            $booking_data['payment_status'] = 'completed';
-            $booking_data['booking_state']  = 'payment_completed';
-            academy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
-
-            $reg_result = academy_complete_registration($booking_data, $booking_token);
-            if ($reg_result['success']) {
-                $booking_data['booking_state'] = 'booking_confirmed';
-                academy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
-                wp_send_json_success(['message' => 'Registration successful! You will receive a confirmation email shortly.']);
-            } else {
-                wp_send_json_error($reg_result['message']);
-            }
-            return;
-        } else {
-            // PayTabs confirmed the payment was declined / failed
-            $booking_data['payment_status'] = 'failed';
-            $booking_data['booking_state']  = 'failed';
-            academy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
-            wp_send_json_error('Payment was not completed. Please try again with a valid card.');
-            return;
-        }
-    }
-
-    // ── Case 4: No transaction reference — payment was never properly initiated
-    wp_send_json_error('Payment was not completed. Please fill out the form again to try another payment.');
-}
-}
+// Legacy PayTabs initiation/verification handlers removed.
 
 // ────────────────────────────────────────────────────────────────────────────
 // Internal: complete the academy registration after confirmed payment.
@@ -2864,16 +2626,14 @@ function academy_complete_registration($booking_data, $booking_token)
 // ============================================================================
 
 /**
- * Process academy booking from IPN/webhook (called by payment_integration.php)
+ * Process academy booking from verified payment callback (called by payment_integration.php)
  * 
  * This is a wrapper that routes to academy_complete_registration() with consistent
  * interface for the unified payment handler.
  * 
- * NOTE: Function renamed to avoid conflict with old PayTabs IPN handler below.
- * The old handler will be deprecated once migration is complete.
- * 
+ *
  * @param string $booking_token Unique booking identifier
- * @param array $payment_data APS callback data (not used for academy, data comes from transient)
+ * @param array $payment_data Verified payment callback data
  * @return array ['success' => bool, 'user_id' => int|null, 'message' => string]
  */
 if (!function_exists('process_academy_booking_from_ipn')) {
@@ -2921,96 +2681,4 @@ function process_academy_booking_from_ipn($booking_token, $payment_data) {
 }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// IPN (Instant Payment Notification) handler for academy bookings.
-// Hooks into template_redirect (priority 4 — before therapy handler at 5 and retreat handler at 10)
-// and processes only cart_ids prefixed with 'academy_'.
-// ────────────────────────────────────────────────────────────────────────────
-
-add_action('template_redirect', 'academy_paytabs_handle_callback', 4);
-
-if (!function_exists('academy_paytabs_handle_callback')) {
-function academy_paytabs_handle_callback()
-{
-    if (!get_query_var('payment_callback')) {
-        return;
-    }
-
-    $json = file_get_contents('php://input');
-    $data = json_decode($json, true);
-
-    if (empty($data['cart_id'])) {
-        return; // No cart_id — not our callback
-    }
-
-    $booking_token = sanitize_text_field($data['cart_id']);
-
-    // Only handle academy bookings
-    if (strpos($booking_token, 'academy_') !== 0) {
-        return;
-    }
-
-    error_log('=== ACADEMY PAYTABS IPN CALLBACK ===');
-    error_log('Token: ' . $booking_token);
-
-    $transient_key = 'academy_' . str_replace('academy_', '', $booking_token);
-    $booking_data  = academy_booking_get($transient_key);
-
-    if (!$booking_data) {
-        error_log('[Academy IPN] ERROR: Booking data not found for token: ' . $booking_token);
-        wp_send_json(['status' => 'error', 'message' => 'Booking not found']);
-        exit;
-    }
-
-    // Store the raw callback and transaction reference
-    $booking_data['payment_callback'] = $data;
-    $booking_data['tran_ref']         = $data['tran_ref'] ?? ($booking_data['tran_ref'] ?? '');
-
-    $payment_status = $data['payment_result']['response_status'] ?? '';
-
-    if ($payment_status === 'A') {
-        error_log('[Academy IPN] Payment APPROVED for token: ' . $booking_token);
-        $booking_data['payment_status']    = 'completed';
-        $booking_data['booking_state']     = 'payment_completed';
-        $booking_data['ipn_processed_at']  = current_time('mysql');
-
-        $reg_result = academy_complete_registration($booking_data, $booking_token);
-
-        if ($reg_result['success']) {
-            $booking_data['booking_state']       = 'booking_confirmed';
-            $booking_data['booking_created_at']  = current_time('mysql');
-            error_log('[Academy IPN] Booking confirmed by IPN for token: ' . $booking_token);
-        } else {
-            // Keep state as payment_completed so verify fallback can retry
-            $booking_data['booking_state'] = 'payment_completed';
-            error_log('[Academy IPN] Registration failed after payment: ' . $reg_result['message']);
-
-            // Alert admin
-            wp_mail(
-                get_option('admin_email'),
-                '[URGENT] Academy IPN Registration Failed - Manual Review Required',
-                "An academy registration failed to process after successful payment.\n\n" .
-                "Booking Token: {$booking_token}\n" .
-                "Error: " . $reg_result['message'] . "\n" .
-                "User Email: " . ($booking_data['email'] ?? 'N/A') . "\n" .
-                "Program ID: " . ($booking_data['program_id'] ?? 'N/A') . "\n" .
-                "Amount Paid: " . ($booking_data['amount'] ?? 'N/A') . ' ' . ($booking_data['currency'] ?? 'SAR') . "\n" .
-                "Transaction Reference: " . ($booking_data['tran_ref'] ?? 'N/A') . "\n\n" .
-                "Please manually create the registration in WordPress admin.",
-                ['Content-Type: text/plain; charset=UTF-8']
-            );
-        }
-    } else {
-        error_log('[Academy IPN] Payment FAILED for token: ' . $booking_token . ' (status: ' . $payment_status . ')');
-        $booking_data['payment_status'] = 'failed';
-        $booking_data['booking_state']  = 'failed';
-        $booking_data['failure_reason'] = $data['payment_result']['response_message'] ?? 'Unknown';
-    }
-
-    // Persist updated data for 24-hour recovery window
-    academy_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
-
-    wp_send_json(['status' => 'received']);
-    exit;
-}
-}
+// Legacy academy-specific PayTabs callback handler removed.

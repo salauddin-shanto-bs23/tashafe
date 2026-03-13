@@ -884,7 +884,7 @@ function render_therapy_registration_form()
                     formData.append('action', 'tanafs_initiate_therapy_payment_logged_in');
                     formData.append('nonce', THERAPY_REG_AJAX.nonce);
                     formData.append('selected_group_id', selectedGroupId);
-
+        
                     fetch(THERAPY_REG_AJAX.url, {
                         method: 'POST',
                         body: formData,
@@ -896,10 +896,9 @@ function render_therapy_registration_form()
                         if (data.data?.debug) {
                             console.log('[Therapy Payment DEBUG] Server debug info:', data.data.debug);
                         }
-                        if (data.success && data.data.redirect_url && data.data.params) {
+                        if (data.success && data.data.gateway === 'hyperpay' && data.data.checkout_id && data.data.widget_url) {
                             setStatus(messages.redirectingPayment, false);
-                            // APS requires form POST redirect
-                            tanafsRedirectToAPS(data.data.redirect_url, data.data.params);
+                            tanafsLaunchHyperPayCheckout(data.data);
                         } else {
                             throw new Error(data.data?.message || 'Payment initiation failed');
                         }
@@ -911,25 +910,23 @@ function render_therapy_registration_form()
                         payBtn.classList.remove('loading');
                         retryBtn.style.display = 'inline-block';
                     });
+
                 }
 
-                // APS Payment redirect helper
-                function tanafsRedirectToAPS(url, params) {
-                    const form = document.createElement('form');
-                    form.method = 'POST';
-                    form.action = url;
-                    form.style.display = 'none';
-                    
-                    Object.keys(params).forEach(function(key) {
-                        const input = document.createElement('input');
-                        input.type = 'hidden';
-                        input.name = key;
-                        input.value = params[key];
-                        form.appendChild(input);
-                    });
-                    
-                    document.body.appendChild(form);
-                    form.submit();
+                function tanafsLaunchHyperPayCheckout(payload) {
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
+                    overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
+                        + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
+                        + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
+                        + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                        + '</div>';
+                    document.body.appendChild(overlay);
+
+                    const script = document.createElement('script');
+                    script.src = payload.widget_url;
+                    script.async = true;
+                    document.body.appendChild(script);
                 }
 
                 function verifyPayment(token) {
@@ -937,7 +934,7 @@ function render_therapy_registration_form()
                     setStatus(messages.verifyingPayment, false);
                     
                     const formData = new FormData();
-                    formData.append('action', 'verify_therapy_payment_status');
+                    formData.append('action', 'tanafs_verify_therapy_payment');
                     formData.append('nonce', THERAPY_REG_AJAX.nonce);
                     formData.append('booking_token', token);
 
@@ -1488,7 +1485,7 @@ function render_therapy_registration_form()
                 submitBtn.textContent = messages.verifyingPayment;
                 
                 const formData = new FormData();
-                formData.append('action', 'verify_therapy_payment_status');
+                formData.append('action', 'tanafs_verify_therapy_payment');
                 formData.append('nonce', form.querySelector('[name="nonce"]').value);
                 formData.append('booking_token', bookingToken);
                 
@@ -1695,7 +1692,7 @@ function render_therapy_registration_form()
                             
                             const bookingToken = data.data.booking_token;
                             
-                            // STEP 2: Initiate APS payment
+                            // STEP 2: Initiate payment
                             const paymentData = new FormData();
                             paymentData.append('action', 'tanafs_initiate_therapy_payment');
                             paymentData.append('nonce', form.querySelector('[name="nonce"]').value);
@@ -1715,10 +1712,9 @@ function render_therapy_registration_form()
                         }
                     })
                     .then(function(paymentResponse) {
-                        if (paymentResponse.success && paymentResponse.data.redirect_url && paymentResponse.data.params) {
-                            // Auto-submit form to redirect to APS payment page
+                        if (paymentResponse.success && paymentResponse.data.gateway === 'hyperpay' && paymentResponse.data.checkout_id && paymentResponse.data.widget_url) {
                             showAlert(messages.redirectingPayment, 'success');
-                            tanafsRedirectToAPS(paymentResponse.data.redirect_url, paymentResponse.data.params);
+                            tanafsLaunchHyperPayCheckout(paymentResponse.data);
                         } else {
                             throw new Error(paymentResponse.data?.message || 'Failed to initiate payment');
                         }
@@ -1733,27 +1729,20 @@ function render_therapy_registration_form()
             });
         })();
 
-        // ================================================================================
-        // APS PAYMENT REDIRECT HELPER
-        // ================================================================================
-        function tanafsRedirectToAPS(url, params) {
-            // Create a hidden form and auto-submit to APS checkout
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = url;
-            form.style.display = 'none';
-            
-            // Add all parameters as hidden inputs
-            Object.keys(params).forEach(function(key) {
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = key;
-                input.value = params[key];
-                form.appendChild(input);
-            });
-            
-            document.body.appendChild(form);
-            form.submit();
+        function tanafsLaunchHyperPayCheckout(payload) {
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
+            overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
+                + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
+                + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
+                + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                + '</div>';
+            document.body.appendChild(overlay);
+
+            const script = document.createElement('script');
+            script.src = payload.widget_url;
+            script.async = true;
+            document.body.appendChild(script);
         }
     </script>
 <?php
