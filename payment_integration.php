@@ -1525,7 +1525,13 @@ add_action('wp_ajax_nopriv_tanafs_initiate_therapy_payment', 'tanafs_ajax_initia
 
 function tanafs_ajax_initiate_therapy_payment() {
     // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'therapy_registration_nonce')) {
+    $therapy_nonce = sanitize_text_field($_POST['nonce'] ?? ($_POST['therapy_nonce'] ?? ''));
+    if (empty($therapy_nonce)
+        || (
+            !wp_verify_nonce($therapy_nonce, 'therapy_registration_nonce')
+            && !wp_verify_nonce($therapy_nonce, 'therapy_nonce')
+        )
+    ) {
         wp_send_json_error(['message' => 'Security verification failed']);
         return;
     }
@@ -1595,7 +1601,13 @@ add_action('wp_ajax_nopriv_tanafs_initiate_retreat_payment', 'tanafs_ajax_initia
 
 function tanafs_ajax_initiate_retreat_payment() {
     // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'retreat_booking_nonce')) {
+    $retreat_nonce = sanitize_text_field($_POST['nonce'] ?? ($_POST['retreat_nonce'] ?? ''));
+    if (empty($retreat_nonce)
+        || (
+            !wp_verify_nonce($retreat_nonce, 'retreat_booking_nonce')
+            && !wp_verify_nonce($retreat_nonce, 'retreat_nonce')
+        )
+    ) {
         wp_send_json_error(['message' => 'Security verification failed']);
         return;
     }
@@ -1662,7 +1674,13 @@ add_action('wp_ajax_tanafs_initiate_therapy_payment_logged_in', 'tanafs_ajax_ini
 
 function tanafs_ajax_initiate_therapy_payment_logged_in() {
     // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'therapy_registration_nonce')) {
+    $therapy_nonce = sanitize_text_field($_POST['nonce'] ?? ($_POST['therapy_nonce'] ?? ''));
+    if (empty($therapy_nonce)
+        || (
+            !wp_verify_nonce($therapy_nonce, 'therapy_registration_nonce')
+            && !wp_verify_nonce($therapy_nonce, 'therapy_nonce')
+        )
+    ) {
         wp_send_json_error(['message' => 'Security verification failed']);
         return;
     }
@@ -1749,7 +1767,8 @@ add_action('wp_ajax_nopriv_tanafs_initiate_academy_payment', 'tanafs_ajax_initia
 
 function tanafs_ajax_initiate_academy_payment() {
     // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'academy_registration_nonce')) {
+    $academy_nonce = sanitize_text_field($_POST['nonce'] ?? ($_POST['academy_nonce'] ?? ''));
+    if (empty($academy_nonce) || !wp_verify_nonce($academy_nonce, 'academy_registration_nonce')) {
         wp_send_json_error(['message' => 'Security verification failed']);
         return;
     }
@@ -1758,6 +1777,7 @@ function tanafs_ajax_initiate_academy_payment() {
     $full_name = sanitize_text_field($_POST['full_name'] ?? '');
     $email = sanitize_email($_POST['email'] ?? '');
     $phone = sanitize_text_field($_POST['phone'] ?? '');
+    $return_page_url = esc_url_raw($_POST['return_page_url'] ?? home_url('/academy/'));
     
     // Validate inputs
     if ($program_id <= 0 || empty($full_name) || empty($email)) {
@@ -1812,7 +1832,7 @@ function tanafs_ajax_initiate_academy_payment() {
         $customer_details,
         [
             'currency' => 'SAR',
-            'return_url' => home_url('/academy/'),
+            'return_url' => $return_page_url,
         ]
     );
     

@@ -2226,10 +2226,13 @@ function academy_phase1_shortcode()
                         if (response.success && response.data.gateway === 'hyperpay' && response.data.checkout_id && response.data.widget_url) {
                             tanafsLaunchHyperPayCheckout(response.data);
                         } else {
+                            const serverMessage = (response && response.data && response.data.message)
+                                ? response.data.message
+                                : (typeof response.data === 'string' ? response.data : 'Payment initiation failed. Please try again.');
                             $btn.prop('disabled', false).text('<?php echo esc_js(academy_get_text('submit_registration')); ?>');
                             $('#academy-register-result')
                                 .css({'background': '#f8d7da', 'color': '#721c24', 'border': '1px solid #f5c6cb'})
-                                .html('<strong>✗ Error:</strong> ' + (response.data || 'Payment initiation failed. Please try again.'))
+                                .html('<strong>✗ Error:</strong> ' + serverMessage)
                                 .show();
                         }
                     },
