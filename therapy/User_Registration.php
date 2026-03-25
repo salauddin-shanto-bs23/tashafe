@@ -914,17 +914,23 @@ function render_therapy_registration_form()
                 }
 
                 function tanafsLaunchHyperPayCheckout(payload) {
+                    window.wpwlOptions = {};
+
                     const overlay = document.createElement('div');
                     overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
                     overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
                         + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
                         + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
-                        + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                        + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>'
                         + '</div>';
                     document.body.appendChild(overlay);
 
                     const script = document.createElement('script');
                     script.src = payload.widget_url;
+                    if (payload.widget_integrity) {
+                        script.integrity = payload.widget_integrity;
+                        script.crossOrigin = 'anonymous';
+                    }
                     script.async = true;
                     document.body.appendChild(script);
                 }
@@ -932,11 +938,16 @@ function render_therapy_registration_form()
                 function verifyPayment(token) {
                     console.log('[Therapy Payment DEBUG] verifyPayment called with token:', token);
                     setStatus(messages.verifyingPayment, false);
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const resourcePath = urlParams.get('resourcePath') || urlParams.get('resource_path') || urlParams.get('resourcepath') || '';
+                    const checkoutId = urlParams.get('id') || urlParams.get('checkoutId') || urlParams.get('checkout_id') || '';
                     
                     const formData = new FormData();
                     formData.append('action', 'tanafs_verify_therapy_payment');
                     formData.append('nonce', THERAPY_REG_AJAX.nonce);
                     formData.append('booking_token', token);
+                    formData.append('checkout_id', checkoutId);
+                    formData.append('resourcePath', resourcePath);
 
                     fetch(THERAPY_REG_AJAX.url, {
                         method: 'POST',
@@ -1472,6 +1483,8 @@ function render_therapy_registration_form()
             // Check for payment return
             const urlParams = new URLSearchParams(window.location.search);
             const paymentReturn = urlParams.get('payment_return');
+            const paymentResourcePath = urlParams.get('resourcePath') || urlParams.get('resource_path') || urlParams.get('resourcepath') || '';
+            const paymentCheckoutId = urlParams.get('id') || urlParams.get('checkoutId') || urlParams.get('checkout_id') || '';
             
             if (paymentReturn && paymentReturn.startsWith('therapy_')) {
                 // User returned from payment - verify status
@@ -1488,6 +1501,8 @@ function render_therapy_registration_form()
                 formData.append('action', 'tanafs_verify_therapy_payment');
                 formData.append('nonce', form.querySelector('[name="nonce"]').value);
                 formData.append('booking_token', bookingToken);
+                formData.append('checkout_id', paymentCheckoutId);
+                formData.append('resourcePath', paymentResourcePath);
                 
                 fetch(THERAPY_REG_AJAX.url, {
                     method: 'POST',
@@ -1730,17 +1745,23 @@ function render_therapy_registration_form()
         })();
 
         function tanafsLaunchHyperPayCheckout(payload) {
+            window.wpwlOptions = {};
+
             const overlay = document.createElement('div');
             overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
             overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
                 + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
                 + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
-                + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>'
                 + '</div>';
             document.body.appendChild(overlay);
 
             const script = document.createElement('script');
             script.src = payload.widget_url;
+            if (payload.widget_integrity) {
+                script.integrity = payload.widget_integrity;
+                script.crossOrigin = 'anonymous';
+            }
             script.async = true;
             document.body.appendChild(script);
         }

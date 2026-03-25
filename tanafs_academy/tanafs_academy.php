@@ -2247,17 +2247,23 @@ function academy_phase1_shortcode()
             });
 
             function tanafsLaunchHyperPayCheckout(payload) {
+                window.wpwlOptions = {};
+
                 const overlay = document.createElement('div');
                 overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
                 overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
                     + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
                     + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
-                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>'
                     + '</div>';
                 document.body.appendChild(overlay);
 
                 const script = document.createElement('script');
                 script.src = payload.widget_url;
+                if (payload.widget_integrity) {
+                    script.integrity = payload.widget_integrity;
+                    script.crossOrigin = 'anonymous';
+                }
                 script.async = true;
                 document.body.appendChild(script);
             }
@@ -2266,6 +2272,8 @@ function academy_phase1_shortcode()
             (function() {
                 var urlParams = new URLSearchParams(window.location.search);
                 var paymentToken = urlParams.get('payment_return');
+                var paymentResourcePath = urlParams.get('resourcePath') || urlParams.get('resource_path') || urlParams.get('resourcepath') || '';
+                var paymentCheckoutId = urlParams.get('id') || urlParams.get('checkoutId') || urlParams.get('checkout_id') || '';
                 if (!paymentToken || paymentToken.indexOf('academy_') !== 0) {
                     return; // Not an academy payment return, nothing to do
                 }
@@ -2285,37 +2293,67 @@ function academy_phase1_shortcode()
                     window.history.replaceState({}, document.title, cleanUrl);
                 }
 
-                // Call verify endpoint
-                $.ajax({
-                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                    type: 'POST',
-                    data: {
-                        action: 'tanafs_verify_academy_payment',
-                        booking_token: paymentToken,
-                        nonce: '<?php echo wp_create_nonce('academy_registration_nonce'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            $('#academy-register-result')
-                                .css({'background': '#d4edda', 'color': '#155724', 'border': '1px solid #c3e6cb'})
-                                .html('<strong>✓ Success!</strong> Registration successful! You will receive a confirmation email shortly.')
-                                .show();
-                        } else {
+                var verifyAttempt = 0;
+                var verifyMaxAttempts = 3;
+
+                function verifyAcademyPayment() {
+                    verifyAttempt++;
+
+                    $.ajax({
+                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                        type: 'POST',
+                        data: {
+                            action: 'tanafs_verify_academy_payment',
+                            booking_token: paymentToken,
+                            checkout_id: paymentCheckoutId,
+                            resourcePath: paymentResourcePath,
+                            nonce: '<?php echo wp_create_nonce('academy_registration_nonce'); ?>'
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                $('#academy-register-result')
+                                    .css({'background': '#d4edda', 'color': '#155724', 'border': '1px solid #c3e6cb'})
+                                    .html('<strong>✓ Success!</strong> Registration successful! You will receive a confirmation email shortly.')
+                                    .show();
+                                return;
+                            }
+
+                            var verifyMessage = (response && response.data && response.data.message)
+                                ? response.data.message
+                                : (typeof response.data === 'string' ? response.data : 'Payment verification failed. Please contact support.');
+                            var verifyStatus = (response && response.data && response.data.status) ? response.data.status : '';
+
+                            if (verifyStatus === 'pending' && verifyAttempt < verifyMaxAttempts) {
+                                $('#academy-register-result')
+                                    .css({'background': '#fff3cd', 'color': '#856404', 'border': '1px solid #ffeeba'})
+                                    .html('<span style="display:inline-flex;align-items:center;gap:8px;"><svg style="animation:spin 1s linear infinite;width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity=".3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> ' + verifyMessage + '</span>')
+                                    .show();
+                                setTimeout(verifyAcademyPayment, 2000);
+                                return;
+                            }
+
                             $('#academy-register-form > div, #academy-register-form > button').show();
                             $('#academy-register-result')
                                 .css({'background': '#f8d7da', 'color': '#721c24', 'border': '1px solid #f5c6cb'})
-                                .html('<strong>✗ Error:</strong> ' + (response.data || 'Payment verification failed. Please contact support.'))
+                                .html('<strong>✗ Error:</strong> ' + verifyMessage)
+                                .show();
+                        },
+                        error: function() {
+                            if (verifyAttempt < verifyMaxAttempts) {
+                                setTimeout(verifyAcademyPayment, 2000);
+                                return;
+                            }
+
+                            $('#academy-register-form > div, #academy-register-form > button').show();
+                            $('#academy-register-result')
+                                .css({'background': '#f8d7da', 'color': '#721c24', 'border': '1px solid #f5c6cb'})
+                                .html('<strong>✗ Error:</strong> Could not verify payment. Please contact support.')
                                 .show();
                         }
-                    },
-                    error: function() {
-                        $('#academy-register-form > div, #academy-register-form > button').show();
-                        $('#academy-register-result')
-                            .css({'background': '#f8d7da', 'color': '#721c24', 'border': '1px solid #f5c6cb'})
-                            .html('<strong>✗ Error:</strong> Could not verify payment. Please contact support.')
-                            .show();
-                    }
-                });
+                    });
+                }
+
+                verifyAcademyPayment();
             })();
         });
     </script>

@@ -62,7 +62,7 @@ Replace APS gateway behavior with HyperPay (OPPWA Copy and Pay) while preserving
 | Implementation - Admin | I-12 | [x] | Validate booking type and payment status filters with new status mapping. | I-11 | done |
 | Verification - Observability | V-08 | [x] | Add structured log events and correlation keys (`booking_token`, `booking_type`, `checkout_id`, `transaction_id`). | I-06,V-04 | done |
 | Testing - Functional | T-01 | [ ] | Therapy success flow: initiate -> pay -> verify -> fulfilled. | V-02,V-07 | blocked |
-| Testing - Functional | T-02 | [ ] | Retreat success flow: initiate -> pay -> verify -> fulfilled. | V-02,V-07 | blocked |
+| Testing - Functional | T-02 | [ ] | Retreat success flow: initiate -> pay -> verify -> fulfilled. | V-02,V-07 | in_progress |
 | Testing - Functional | T-03 | [ ] | Academy success flow: initiate -> pay -> verify -> fulfilled. | V-02,V-07 | blocked |
 | Testing - Reliability | T-04 | [ ] | Replay webhook (duplicate notification) and confirm no duplicate fulfillment. | V-06,V-07 | blocked |
 | Testing - Reliability | T-05 | [ ] | Verify return-before-webhook and webhook-before-return both converge to one final state. | V-06,V-07 | blocked |

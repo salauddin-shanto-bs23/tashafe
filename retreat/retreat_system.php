@@ -2386,6 +2386,33 @@ add_action('wp_footer', function () {
             // Check if we're returning from gateway payment
             const urlParams = new URLSearchParams(window.location.search);
             const paymentReturnToken = urlParams.get('payment_return');
+            const paymentResourcePath = urlParams.get('resourcePath') || urlParams.get('resource_path') || urlParams.get('resourcepath') || '';
+            const paymentCheckoutId = urlParams.get('id') || urlParams.get('checkoutId') || urlParams.get('checkout_id') || '';
+
+            function logRetreatReturnEvent(eventName, note) {
+                $.post(RETREAT_AJAX.url, {
+                    action: 'tanafs_log_hyperpay_client_event',
+                    nonce: RETREAT_AJAX.nonce,
+                    event_name: eventName,
+                    booking_token: paymentReturnToken || '',
+                    booking_type: urlParams.get('booking_type') || 'retreat',
+                    checkout_id: paymentCheckoutId || '',
+                    transaction_id: '',
+                    page_url: window.location.href,
+                    note: note || ''
+                });
+            }
+
+            if (paymentReturnToken || paymentResourcePath || paymentCheckoutId) {
+                const returnDebug = {
+                    query: window.location.search || '',
+                    payment_return: paymentReturnToken || '',
+                    resourcePath: paymentResourcePath || '',
+                    checkout_id: paymentCheckoutId || '',
+                    booking_type: urlParams.get('booking_type') || 'retreat'
+                };
+                logRetreatReturnEvent('widget_return_detected', JSON.stringify(returnDebug));
+            }
             
             if (paymentReturnToken) {
                 console.log('Payment return detected, token:', paymentReturnToken);
@@ -2396,18 +2423,29 @@ add_action('wp_footer', function () {
                 // Backend verification checks shared payment status endpoint.
                 
                 let retryCount = 0;
-                const maxRetries = 3; // Reduced: only retry for network issues
-                const retryDelay = 2000;
+                const maxRetries = 25;
+                const retryDelay = 31000;
+                const verificationStartedAt = Date.now();
+                const maxVerificationWindowMs = 660000;
+                let verifyInFlight = false;
                 
                 function verifyPayment() {
+                    if (verifyInFlight) {
+                        return;
+                    }
+
+                    verifyInFlight = true;
                     retryCount++;
                     console.log('Verification attempt #' + retryCount);
                     
                     $.post(RETREAT_AJAX.url, {
                         action: 'tanafs_verify_retreat_payment',
                         token: paymentReturnToken,
+                        checkout_id: paymentCheckoutId,
+                        resourcePath: paymentResourcePath,
                         nonce: RETREAT_AJAX.nonce
                     }, function(response) {
+                        verifyInFlight = false;
                         console.log('Payment verification response:', response);
                         
                         if (response.success && response.data.payment_verified) {
@@ -2454,17 +2492,26 @@ add_action('wp_footer', function () {
                             const errorMsg = response.data?.message || 'Payment verification failed';
                             console.error('Verification failed:', errorMsg);
                             
-                            // Retry for transient errors only
-                            if (retryCount < maxRetries && !errorMsg.includes('failed with PayTabs')) {
+                            // Retry for transient pending/verification states
+                            if (response.data?.status === 'pending' || response.data?.payment_status === 'pending') {
+                                const elapsedMs = Date.now() - verificationStartedAt;
+                                if (retryCount < maxRetries && elapsedMs < maxVerificationWindowMs) {
                                 console.log('Retrying in ' + retryDelay + 'ms...');
-                                $('#verification-status').text('Verifying your payment...');
-                                setTimeout(verifyPayment, retryDelay);
+                                    $('#verification-status').text('Payment is still being finalized... checking again.');
+                                    setTimeout(verifyPayment, retryDelay);
+                                    return;
+                                }
+
+                                $('#payment-verification-overlay').remove();
+                                alert('Payment is still processing. Please refresh this page in a few minutes, or contact support if this persists.');
+                                return;
                             } else {
                                 $('#payment-verification-overlay').remove();
                                 alert('Payment Error: ' + errorMsg + '\n\nPlease contact support if you were charged.');
                             }
                         }
                     }).fail(function(xhr, status, error) {
+                        verifyInFlight = false;
                         console.error('AJAX failed:', status, error);
                         
                         // Retry on network errors
@@ -2997,7 +3044,14 @@ add_action('wp_footer', function () {
                     nonce: RETREAT_AJAX.nonce
                 }, function(response) {
                     if (response.success && response.data.gateway === 'hyperpay' && response.data.checkout_id && response.data.widget_url) {
+                        if (response.data.hosted_checkout_url) {
+                            window.location.href = response.data.hosted_checkout_url;
+                            return;
+                        }
+
                         console.log('Payment initiated, launching HyperPay checkout...');
+                        response.data.booking_token = token;
+                        response.data.booking_type = 'retreat';
                         tanafsLaunchHyperPayCheckout(response.data);
                     } else {
                         const errorMsg = (response.data && response.data.message) ? response.data.message : 
@@ -3012,17 +3066,90 @@ add_action('wp_footer', function () {
             }
 
             function tanafsLaunchHyperPayCheckout(payload) {
+                function tanafsLogWidgetEvent(eventName, note) {
+                    $.post(RETREAT_AJAX.url, {
+                        action: 'tanafs_log_hyperpay_client_event',
+                        nonce: RETREAT_AJAX.nonce,
+                        event_name: eventName,
+                        booking_token: payload.booking_token || '',
+                        booking_type: payload.booking_type || 'retreat',
+                        checkout_id: payload.checkout_id || '',
+                        transaction_id: payload.transaction_id || '',
+                        page_url: window.location.href,
+                        note: note || ''
+                    });
+                }
+
+                window.wpwlOptions = {
+                    onReady: function() {
+                        tanafsLogWidgetEvent('widget_ready');
+                        setTimeout(function() {
+                            const $widgetForm = jQuery('.wpwl-form');
+                            if ($widgetForm.length) {
+                                tanafsLogWidgetEvent('widget_form_detected');
+
+                                $widgetForm.off('submit.tanafsWidgetTrace').on('submit.tanafsWidgetTrace', function() {
+                                    tanafsLogWidgetEvent('widget_form_submit_event');
+                                    setTimeout(function() {
+                                        tanafsLogWidgetEvent('widget_post_submit_2s');
+                                    }, 2000);
+                                });
+
+                                $widgetForm.find('.wpwl-button').off('click.tanafsWidgetTrace').on('click.tanafsWidgetTrace', function() {
+                                    tanafsLogWidgetEvent('widget_pay_button_click');
+                                });
+                            } else {
+                                tanafsLogWidgetEvent('widget_form_missing');
+                            }
+                        }, 0);
+                    },
+                    onBeforeSubmitCard: function() {
+                        tanafsLogWidgetEvent('widget_before_submit_card');
+                        return true;
+                    },
+                    onError: function(error) {
+                        const errorMsg = (error && error.message) ? error.message : 'unknown_widget_error';
+                        tanafsLogWidgetEvent('widget_error', errorMsg);
+                    }
+                };
+
                 const overlay = document.createElement('div');
                 overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
                 overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
                     + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
                     + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
-                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="VISA MASTER MADA"></form>'
+                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>'
                     + '</div>';
                 document.body.appendChild(overlay);
+                tanafsLogWidgetEvent('widget_overlay_rendered');
+
+                if (!window.__tanafsHyperpayCspListenerBound) {
+                    window.__tanafsHyperpayCspListenerBound = true;
+                    window.addEventListener('securitypolicyviolation', function(ev) {
+                        const detail = [
+                            'directive=' + (ev.violatedDirective || ''),
+                            'blocked=' + (ev.blockedURI || ''),
+                            'source=' + (ev.sourceFile || ''),
+                            'line=' + (ev.lineNumber || 0)
+                        ].join('|');
+                        tanafsLogWidgetEvent('widget_csp_violation', detail);
+                    });
+                }
+
+                tanafsLogWidgetEvent('widget_form_action', payload.result_url || '');
 
                 const script = document.createElement('script');
                 script.src = payload.widget_url;
+                if (payload.widget_integrity) {
+                    script.integrity = payload.widget_integrity;
+                    script.crossOrigin = 'anonymous';
+                }
+                script.onload = function() {
+                    tanafsLogWidgetEvent('widget_script_loaded');
+                };
+                script.onerror = function() {
+                    tanafsLogWidgetEvent('widget_script_load_error');
+                };
                 script.async = true;
                 document.body.appendChild(script);
             }
@@ -3116,7 +3243,18 @@ add_action('wp_footer', function () {
                 }).fail(function(xhr, status, error) {
                     console.error('AJAX call failed:', status, error);
                     console.error('Response:', xhr.responseText);
-                    alert('An error occurred. Please try again.');
+                    let failMsg = 'An error occurred. Please try again.';
+                    try {
+                        const parsed = JSON.parse(xhr.responseText || '{}');
+                        if (parsed && parsed.data && parsed.data.message) {
+                            failMsg = parsed.data.message;
+                        }
+                    } catch (e) {
+                        if (xhr.status === 400) {
+                            failMsg = 'Request was rejected (400). Please refresh the page and try again.';
+                        }
+                    }
+                    alert(failMsg);
                     btn.prop('disabled', false).text('Submit Information');
                 });
             });
@@ -4182,6 +4320,205 @@ function render_retreat_event_cards()
 // ============================================================================
 // IPN FULFILLMENT HANDLER FOR APS PAYMENT CALLBACK
 // ============================================================================
+
+/**
+ * Standard retreat questionnaire questions used in frontend modal and persistence.
+ *
+ * @return array
+ */
+if (!function_exists('retreat_get_questionnaire_questions')) {
+function retreat_get_questionnaire_questions() {
+    return [
+        'Do you have any chronic illnesses?',
+        'Have you had any previous surgeries or injuries?',
+        'Have you ever been diagnosed with any psychological disorder?',
+        'Are you currently taking any psychiatric or other medications?',
+        'How are you feeling during this period of your life?',
+        'How do your emotions affect your daily life and relationships?',
+        'Do you have any fears or challenges you would like to discuss in the group?',
+        'How do you think group therapy sessions can support you in achieving what you are aiming for?',
+        'What steps have you taken so far to overcome the challenges you are facing?',
+        'What is your level of comfort with sharing and expressing your emotions within a group?',
+        'Have you practiced yoga before?',
+        'Do you have any food allergies or follow any specific dietary restrictions?'
+    ];
+}
+}
+
+/**
+ * Save retreat questionnaire answers for a user.
+ *
+ * @param int    $user_id User ID.
+ * @param array  $answers Answers array keyed by question index.
+ * @param string $retreat_type Retreat type.
+ * @param int    $group_id Retreat group id.
+ * @return bool
+ */
+if (!function_exists('retreat_save_questionnaire_answers_for_user')) {
+function retreat_save_questionnaire_answers_for_user($user_id, $answers, $retreat_type = '', $group_id = 0) {
+    global $wpdb;
+
+    $user_id = (int) $user_id;
+    if ($user_id <= 0 || !is_array($answers) || empty($answers)) {
+        return false;
+    }
+
+    $table_name = $wpdb->prefix . 'retreat_questionnaire_answers';
+    $questions = retreat_get_questionnaire_questions();
+
+    // Keep latest submission only.
+    $wpdb->delete($table_name, ['user_id' => $user_id], ['%d']);
+
+    $saved_count = 0;
+    foreach ($answers as $index => $answer) {
+        $question_index = (int) $index;
+        $answer_text = trim((string) $answer);
+        if (!isset($questions[$question_index]) || $answer_text === '') {
+            continue;
+        }
+
+        $inserted = $wpdb->insert(
+            $table_name,
+            [
+                'user_id' => $user_id,
+                'retreat_type' => sanitize_text_field((string) $retreat_type),
+                'retreat_group_id' => (int) $group_id,
+                'question_number' => $question_index + 1,
+                'question_text' => sanitize_text_field($questions[$question_index]),
+                'answer' => sanitize_textarea_field($answer_text),
+            ],
+            ['%d', '%s', '%d', '%d', '%s', '%s']
+        );
+
+        if ($inserted) {
+            $saved_count++;
+        }
+    }
+
+    return ($saved_count > 0);
+}
+}
+
+/**
+ * Complete retreat registration after verified payment by saving questionnaire.
+ *
+ * This fallback is used when the legacy PayTabs handler snippet is not active.
+ */
+if (!function_exists('ajax_complete_retreat_registration')) {
+function ajax_complete_retreat_registration() {
+    $nonce = sanitize_text_field($_POST['nonce'] ?? '');
+    if (empty($nonce) || !wp_verify_nonce($nonce, 'retreat_nonce')) {
+        wp_send_json_error(['message' => 'Security verification failed']);
+        return;
+    }
+
+    $booking_token = sanitize_text_field($_POST['token'] ?? '');
+    if (empty($booking_token)) {
+        wp_send_json_error(['message' => 'Invalid booking token']);
+        return;
+    }
+
+    $transient_key = 'retreat_' . $booking_token;
+    if (function_exists('retreat_booking_get')) {
+        $booking_data = retreat_booking_get($transient_key);
+    } else {
+        $booking_data = get_transient($transient_key);
+    }
+
+    if (!$booking_data || !is_array($booking_data)) {
+        wp_send_json_error(['message' => 'Booking session expired']);
+        return;
+    }
+
+    // Source of truth: unified payments table verification status.
+    if (function_exists('tanafs_find_payment_record')) {
+        $payment = tanafs_find_payment_record([
+            'booking_token' => $booking_token,
+            'booking_type' => 'retreat',
+        ]);
+
+        if (!$payment || (($payment->payment_status ?? '') !== 'complete')) {
+            wp_send_json_error(['message' => 'Payment verification is not complete yet.']);
+            return;
+        }
+    }
+
+    $user_id = (int) ($booking_data['user_id'] ?? 0);
+    if ($user_id > 0 && !get_user_by('id', $user_id)) {
+        $user_id = 0;
+    }
+
+    if ($user_id <= 0) {
+        $email = sanitize_email((string) ($booking_data['personal_info']['email'] ?? ''));
+        if (!empty($email)) {
+            $existing_user_id = email_exists($email);
+            if ($existing_user_id) {
+                $user_id = (int) $existing_user_id;
+            }
+        }
+    }
+
+    // Fallback to fulfillment processor if user was not persisted in transient.
+    if ($user_id <= 0 && function_exists('process_retreat_booking_from_ipn')) {
+        $result = process_retreat_booking_from_ipn($booking_data, $booking_token);
+        if (!empty($result['success']) && !empty($result['user_id'])) {
+            $user_id = (int) $result['user_id'];
+        }
+    }
+
+    if ($user_id <= 0) {
+        wp_send_json_error(['message' => 'Unable to resolve retreat user account']);
+        return;
+    }
+
+    $questionnaire_json = wp_unslash($_POST['questionnaire_answers'] ?? '');
+    $questionnaire_answers = json_decode($questionnaire_json, true);
+    if (!is_array($questionnaire_answers) || empty($questionnaire_answers)) {
+        wp_send_json_error(['message' => 'Questionnaire answers are missing']);
+        return;
+    }
+
+    $saved = retreat_save_questionnaire_answers_for_user(
+        $user_id,
+        $questionnaire_answers,
+        sanitize_text_field((string) ($booking_data['retreat_type'] ?? '')),
+        (int) ($booking_data['group_id'] ?? 0)
+    );
+
+    if (!$saved) {
+        wp_send_json_error(['message' => 'Failed to save questionnaire answers']);
+        return;
+    }
+
+    $booking_data['user_id'] = $user_id;
+    $booking_data['booking_state'] = 'fully_completed';
+    $booking_data['questionnaire_submitted_at'] = current_time('mysql');
+    if (function_exists('retreat_booking_save')) {
+        retreat_booking_save($transient_key, $booking_data, DAY_IN_SECONDS);
+    } else {
+        set_transient($transient_key, $booking_data, DAY_IN_SECONDS);
+    }
+
+    if (get_current_user_id() !== $user_id) {
+        $user = get_user_by('id', $user_id);
+        if ($user) {
+            wp_set_current_user($user_id);
+            wp_set_auth_cookie($user_id, true);
+            do_action('wp_login', $user->user_login, $user);
+        }
+    }
+
+    wp_send_json_success([
+        'message' => 'Registration completed successfully!',
+        'user_id' => $user_id,
+        'logged_in' => true,
+        'redirect_url' => home_url('/groups/'),
+    ]);
+}
+
+add_action('wp_ajax_complete_retreat_registration', 'ajax_complete_retreat_registration');
+add_action('wp_ajax_nopriv_complete_retreat_registration', 'ajax_complete_retreat_registration');
+}
 
 /**
  * Process retreat booking from IPN/webhook (called by payment_integration.php)
