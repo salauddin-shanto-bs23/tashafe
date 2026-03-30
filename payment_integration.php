@@ -2212,7 +2212,7 @@ function tanafs_render_payment_widget_page() {
         <div class="wrap">
             <h2>Secure Payment</h2>
             <p>Please complete your payment to continue.</p>
-            <form action="<?php echo esc_url($result_url); ?>" class="paymentWidgets" data-brands="VISA MASTER"></form>
+            <form action="<?php echo esc_url($result_url); ?>" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>
         </div>
     </body>
     </html>
@@ -2909,6 +2909,15 @@ function tanafs_fulfill_booking_from_ipn($booking_token, $booking_type, $payment
                 } else {
                     $booking_data = get_transient($transient_key);
                 }
+
+                // Backward-compatible fallback for older logged-in therapy key format.
+                if (!$booking_data) {
+                    if (function_exists('therapy_booking_get')) {
+                        $booking_data = therapy_booking_get($booking_token);
+                    } else {
+                        $booking_data = get_transient($booking_token);
+                    }
+                }
                 
                 if (!$booking_data) {
                     return [
@@ -3196,12 +3205,14 @@ function tanafs_ajax_initiate_therapy_payment_logged_in() {
         'amount' => $therapy_price,
         'booking_type' => 'therapy_logged_in',
     ];
+
+    $transient_key = 'therapy_' . str_replace('therapy_', '', $booking_token);
     
     // Store using therapy helper function if available
     if (function_exists('therapy_booking_save')) {
-        therapy_booking_save($booking_token, $booking_data, 4 * HOUR_IN_SECONDS);
+        therapy_booking_save($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
     } else {
-        set_transient($booking_token, $booking_data, 4 * HOUR_IN_SECONDS);
+        set_transient($transient_key, $booking_data, 4 * HOUR_IN_SECONDS);
     }
     
     // Prepare customer details

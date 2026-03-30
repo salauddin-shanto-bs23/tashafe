@@ -2175,26 +2175,36 @@ if (!function_exists('process_therapy_booking_from_ipn')) {
 function process_therapy_booking_from_ipn($booking_data, $booking_token) {
     error_log('=== THERAPY IPN BOOKING PROCESSOR START ===');
     error_log('Token: ' . $booking_token);
+
+    $group_id = intval($booking_data['group_id'] ?? 0);
     
     // ============================================
     // 1. IDEMPOTENCY CHECK
     // ============================================
+    $user_id = 0;
     if (!empty($booking_data['user_id'])) {
-        $existing_user = get_user_by('id', $booking_data['user_id']);
+        $existing_user = get_user_by('id', intval($booking_data['user_id']));
         if ($existing_user) {
-            error_log('[Therapy IPN] User already exists (ID: ' . $booking_data['user_id'] . '), skipping creation');
-            return [
-                'success' => true,
-                'user_id' => $booking_data['user_id'],
-                'message' => 'User already created'
-            ];
+            $user_id = intval($existing_user->ID);
+            $assigned_group = intval(get_user_meta($user_id, 'assigned_group', true));
+
+            if ($group_id > 0 && $assigned_group === $group_id) {
+                error_log('[Therapy IPN] Existing user already fulfilled for this group (ID: ' . $user_id . ', group: ' . $group_id . ')');
+                return [
+                    'success' => true,
+                    'user_id' => $user_id,
+                    'message' => 'User already fulfilled for this group'
+                ];
+            }
+
+            error_log('[Therapy IPN] Existing user found (ID: ' . $user_id . '), continuing to complete therapy assignment');
         }
     }
     
     $personal_info = $booking_data['personal_info'] ?? [];
     $email = $personal_info['email'] ?? '';
     
-    if (empty($email)) {
+    if ($user_id <= 0 && empty($email)) {
         error_log('[Therapy IPN] ERROR: No email in booking data');
         return [
             'success' => false,
@@ -2206,54 +2216,68 @@ function process_therapy_booking_from_ipn($booking_data, $booking_token) {
     // ============================================
     // 2. CHECK IF EMAIL ALREADY EXISTS
     // ============================================
-    $existing_user = get_user_by('email', $email);
-    if ($existing_user) {
-        $user_id = $existing_user->ID;
-        error_log('[Therapy IPN] Email exists, using existing user ID: ' . $user_id);
-    } else {
+    if ($user_id <= 0) {
+        $existing_user = get_user_by('email', $email);
+        if ($existing_user) {
+            $user_id = $existing_user->ID;
+            error_log('[Therapy IPN] Email exists, using existing user ID: ' . $user_id);
+        } else {
         // ============================================
         // 3. CREATE NEW USER ACCOUNT
         // ============================================
-        $password = $personal_info['password'] ?? wp_generate_password(12, true);
+            $password = $personal_info['password'] ?? wp_generate_password(12, true);
         
-        $user_id = wp_create_user($email, $password, $email);
+            $user_id = wp_create_user($email, $password, $email);
         
-        if (is_wp_error($user_id)) {
-            error_log('[Therapy IPN] ERROR: Failed to create user: ' . $user_id->get_error_message());
-            return [
-                'success' => false,
-                'user_id' => null,
-                'message' => 'Failed to create user: ' . $user_id->get_error_message()
-            ];
+            if (is_wp_error($user_id)) {
+                error_log('[Therapy IPN] ERROR: Failed to create user: ' . $user_id->get_error_message());
+                return [
+                    'success' => false,
+                    'user_id' => null,
+                    'message' => 'Failed to create user: ' . $user_id->get_error_message()
+                ];
+            }
+        
+            error_log('[Therapy IPN] Created new user ID: ' . $user_id);
+        
+            // Update user display name
+            wp_update_user([
+                'ID'           => $user_id,
+                'first_name'   => $personal_info['first_name'] ?? '',
+                'last_name'    => $personal_info['last_name'] ?? '',
+                'display_name' => ($personal_info['first_name'] ?? '') . ' ' . ($personal_info['last_name'] ?? ''),
+            ]);
         }
-        
-        error_log('[Therapy IPN] Created new user ID: ' . $user_id);
-        
-        // Update user display name
-        wp_update_user([
-            'ID'           => $user_id,
-            'first_name'   => $personal_info['first_name'] ?? '',
-            'last_name'    => $personal_info['last_name'] ?? '',
-            'display_name' => ($personal_info['first_name'] ?? '') . ' ' . ($personal_info['last_name'] ?? ''),
-        ]);
     }
     
     // ============================================
     // 4. SAVE USER METADATA
     // ============================================
-    update_user_meta($user_id, 'first_name', $personal_info['first_name'] ?? '');
-    update_user_meta($user_id, 'last_name', $personal_info['last_name'] ?? '');
-    update_user_meta($user_id, 'phone_number', $personal_info['phone'] ?? '');
-    update_user_meta($user_id, 'passport_no', $personal_info['passport_number'] ?? '');
-    update_user_meta($user_id, 'country', $personal_info['country'] ?? '');
-    update_user_meta($user_id, 'dob', $personal_info['birth_date'] ?? '');
+    if (!empty($personal_info['first_name'])) {
+        update_user_meta($user_id, 'first_name', $personal_info['first_name']);
+    }
+    if (!empty($personal_info['last_name'])) {
+        update_user_meta($user_id, 'last_name', $personal_info['last_name']);
+    }
+    if (!empty($personal_info['phone'])) {
+        update_user_meta($user_id, 'phone_number', $personal_info['phone']);
+    }
+    if (!empty($personal_info['passport_number'])) {
+        update_user_meta($user_id, 'passport_no', $personal_info['passport_number']);
+    }
+    if (!empty($personal_info['country'])) {
+        update_user_meta($user_id, 'country', $personal_info['country']);
+    }
+    if (!empty($personal_info['birth_date'])) {
+        update_user_meta($user_id, 'dob', $personal_info['birth_date']);
+    }
     update_user_meta($user_id, 'account_status', 'approved');
     
     // Payment metadata
     $transaction_id = $booking_data['transaction_id'] ?? $booking_data['tran_ref'] ?? '';
     update_user_meta($user_id, 'payment_transaction_id', $transaction_id);
     update_user_meta($user_id, 'payment_amount', $booking_data['amount'] ?? 0);
-    update_user_meta($user_id, 'payment_method', 'aps');
+    update_user_meta($user_id, 'payment_method', 'hyperpay');
     
     // Session data (from assessment)
     $session_data = $booking_data['session_data'] ?? [];
@@ -2274,7 +2298,6 @@ function process_therapy_booking_from_ipn($booking_data, $booking_token) {
     // ============================================
     // 5. ASSIGN TO THERAPY GROUP
     // ============================================
-    $group_id = intval($booking_data['group_id'] ?? 0);
     if ($group_id <= 0) {
         error_log('[Therapy IPN] ERROR: Invalid group_id: ' . $group_id);
         return [
@@ -2355,6 +2378,14 @@ function process_therapy_booking_from_ipn($booking_data, $booking_token) {
     // ============================================
     if (function_exists('remove_user_from_waiting_list_by_email')) {
         remove_user_from_waiting_list_by_email($email);
+    }
+
+    // Auto-login on successful payment fulfillment when this runs in user flow.
+    $user = get_user_by('id', $user_id);
+    if ($user) {
+        wp_set_current_user($user_id);
+        wp_set_auth_cookie($user_id, true);
+        do_action('wp_login', $user->user_login, $user);
     }
     
     // ============================================

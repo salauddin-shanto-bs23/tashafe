@@ -2388,6 +2388,8 @@ add_action('wp_footer', function () {
             const paymentReturnToken = urlParams.get('payment_return');
             const paymentResourcePath = urlParams.get('resourcePath') || urlParams.get('resource_path') || urlParams.get('resourcepath') || '';
             const paymentCheckoutId = urlParams.get('id') || urlParams.get('checkoutId') || urlParams.get('checkout_id') || '';
+            const returnBookingType = (urlParams.get('booking_type') || '').toLowerCase();
+            const isRetreatPaymentReturn = !!paymentReturnToken && paymentReturnToken.indexOf('retreat_') === 0;
 
             function logRetreatReturnEvent(eventName, note) {
                 $.post(RETREAT_AJAX.url, {
@@ -2409,12 +2411,13 @@ add_action('wp_footer', function () {
                     payment_return: paymentReturnToken || '',
                     resourcePath: paymentResourcePath || '',
                     checkout_id: paymentCheckoutId || '',
-                    booking_type: urlParams.get('booking_type') || 'retreat'
+                    booking_type: returnBookingType || 'retreat',
+                    is_retreat_return: isRetreatPaymentReturn ? 'yes' : 'no'
                 };
                 logRetreatReturnEvent('widget_return_detected', JSON.stringify(returnDebug));
             }
             
-            if (paymentReturnToken) {
+            if (isRetreatPaymentReturn || (returnBookingType === 'retreat' && paymentReturnToken)) {
                 console.log('Payment return detected, token:', paymentReturnToken);
                 
                 // Show loading modal
