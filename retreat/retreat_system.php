@@ -2440,14 +2440,17 @@ add_action('wp_footer', function () {
                     verifyInFlight = true;
                     retryCount++;
                     console.log('Verification attempt #' + retryCount);
-                    
-                    $.post(RETREAT_AJAX.url, {
+                    let body = {
                         action: 'tanafs_verify_retreat_payment',
                         token: paymentReturnToken,
                         checkout_id: paymentCheckoutId,
                         resourcePath: paymentResourcePath,
                         nonce: RETREAT_AJAX.nonce
-                    }, function(response) {
+                    };
+
+                    console.log('Sending verification request with body:', body, 'to URL:', RETREAT_AJAX.url);
+                    
+                    $.post(RETREAT_AJAX.url, body , function(response) {
                         verifyInFlight = false;
                         console.log('Payment verification response:', response);
                         
