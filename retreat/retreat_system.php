@@ -909,7 +909,7 @@ function ajax_register_retreat_user()
     // Send registration email with retreat and trip details (includes fallback join link)
     wp_mail(
         $email,
-        'Retreat Registration Confirmed – Tashafe',
+        'تأكيد مشاركتك في رحلة تنفّس ✨',
         get_retreat_registration_email_with_details($first_name, $retreat_type, $chat_link, $private_channel_link, $suggested_nickname, $retreat_dates, $trip_destination, '', $chat_join_url),
         ['Content-Type: text/html; charset=UTF-8']
     );
@@ -1167,59 +1167,39 @@ function get_retreat_registration_email_with_details($first_name, $retreat_type,
     ob_start();
 ?>
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="ar" dir="rtl">
 
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Tashafe Retreat Registration</title>
+        <title>تأكيد مشاركتك في رحلة تنفّس</title>
     </head>
 
-    <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif;">
+    <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif; direction:rtl;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6; padding:40px 0;">
             <tr>
                 <td align="center">
                     <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-                        <!-- Header -->
                         <tr>
-                            <td style="background:linear-gradient(135deg, #C3DDD2, #6059A6); padding:24px; text-align:center; color:#ffffff; font-size:24px; font-weight:bold;">
-                                🎉 Retreat Registration Confirmed!
+                            <td style="background:linear-gradient(135deg, #C3DDD2, #6059A6); padding:24px; text-align:center; color:#ffffff; font-size:22px; font-weight:bold;">
+                                تأكيد مشاركتك في رحلة تنفّس ✨
                             </td>
                         </tr>
-                        <!-- Body -->
                         <tr>
-                            <td style="padding:30px; color:#333; font-size:16px; line-height:26px;">
-                                <p>Hi <?php echo esc_html($first_name); ?>,</p>
-                                <p>Congratulations! Your registration for the <strong><?php echo ucfirst($retreat_type); ?> Retreat</strong> has been successfully confirmed.</p>
+                            <td style="padding:30px; color:#333; font-size:16px; line-height:28px; text-align:right;">
+                                <p>مرحبًا <?php echo esc_html($first_name); ?>،</p>
+                                <p>شكرًا لمشاركتك في رحلة تنفّس 🤍<br>نحن متشوقون جدًا لنعيش معك تجربة علاجية وإنسانية ثرية، مليئة بالهدوء، الوعي، والمتعة.</p>
 
-                                <!-- Retreat Details Box -->
-                                <div style="background:linear-gradient(135deg, #f8f9fa, #e9ecef); padding:20px; border-radius:10px; margin:20px 0; border-left:4px solid #6059A6;">
-                                    <p style="margin:0 0 15px 0; font-weight:600; color:#6059A6; font-size:18px;">📋 Your Retreat Details</p>
-                                    <?php if ($retreat_dates): ?>
-                                        <p style="margin:8px 0; font-size:15px;"><strong>Retreat Dates:</strong> <?php echo esc_html($retreat_dates); ?></p>
-                                    <?php endif; ?>
-                                    <?php if ($trip_destination): ?>
-                                        <p style="margin:8px 0; font-size:15px;"><strong>Trip Destination:</strong> <?php echo esc_html($trip_destination); ?></p>
-                                    <?php endif; ?>
-                                    <?php if ($trip_dates): ?>
-                                        <p style="margin:8px 0; font-size:15px;"><strong>Trip Dates:</strong> <?php echo esc_html($trip_dates); ?></p>
-                                    <?php endif; ?>
-                                </div>
+                                <p>
+                                    📍 الوجهة: <?php echo esc_html($trip_destination ?: 'سيتم تحديدها لاحقًا'); ?><br>
+                                    📅 التاريخ: <?php echo esc_html($retreat_dates ?: 'سيتم تحديده لاحقًا'); ?>
+                                </p>
 
-                                <!-- Pre-Trip Contact Note -->
-                                <div style="background:#fff3cd; padding:15px; border-radius:8px; margin:20px 0; border-left:4px solid #ffc107;">
-                                    <p style="margin:0; font-size:14px; color:#856404;">
-                                        📞 <strong>Pre-Trip Contact Note:</strong> You will be contacted one week before the retreat begins with final details and preparation information.
-                                    </p>
-                                </div>
-
-                                <p style="margin-top:25px;">If you have any questions, feel free to contact us anytime.</p>
-                            </td>
-                        </tr>
-                        <!-- Footer -->
-                        <tr>
-                            <td style="background:#f0f0f0; padding:16px; text-align:center; font-size:12px; color:#666;">
-                                © <?php echo date("Y"); ?> Tashafe — All Rights Reserved.
+                                <p>خلال هذه الأيام، سنشارك معًا تجربة متكاملة تجمع بين الجلسات العلاجية، الأنشطة، والمساحات الهادئة لإعادة الاتصال مع الذات.</p>
+                                <p>سيتم إرسال تفاصيل الرحلة الكاملة (الجدول، التعليمات، والاستعدادات) في وقت لاحق من فريق العمل.</p>
+                                <p>كما سيتم التواصل معك عبر الواتساب قريبًا لتأكيد كافة التفاصيل.</p>
+                                <p>سعداء بوجودك معنا 🤍<br>ومتشوقون لرؤيتك</p>
+                                <p>فريق تنفّس</p>
                             </td>
                         </tr>
                     </table>
@@ -4681,36 +4661,35 @@ function process_retreat_booking_from_ipn($booking_data, $booking_token) {
     // ============================================
     // 6. SEND CONFIRMATION EMAIL
     // ============================================
-    $retreat_title = get_the_title($group_id);
     $start_date = '';
     $end_date = '';
     $destination = '';
-    
+
     if (function_exists('get_field')) {
         $start_date = get_field('start_date', $group_id);
         $end_date = get_field('end_date', $group_id);
         $destination = get_field('trip_destination', $group_id);
     }
-    
-    $email_subject = 'Retreat Booking Confirmation - Tanafs';
-    $email_body = "Dear {$full_name},\n\n";
-    $email_body .= "Thank you for booking your retreat with Tanafs!\n\n";
-    $email_body .= "Your retreat booking has been confirmed.\n\n";
-    $email_body .= "Retreat: {$retreat_title}\n";
-    if ($start_date && $end_date) {
-        $email_body .= "Dates: {$start_date} to {$end_date}\n";
-    }
-    if ($destination) {
-        $email_body .= "Destination: {$destination}\n";
-    }
-    $email_body .= "\nPayment Transaction ID: {$transaction_id}\n";
-    $email_body .= "Amount Paid: " . ($booking_data['amount'] ?? '0') . " " . ($booking_data['currency'] ?? 'SAR') . "\n\n";
-    $email_body .= "Please complete the wellness questionnaire when you return to the site.\n\n";
-    $email_body .= "You can login at: " . wp_login_url() . "\n\n";
-    $email_body .= "We look forward to seeing you!\n\n";
-    $email_body .= "Best regards,\nTanafs Team";
-    
-    wp_mail($email, $email_subject, $email_body);
+
+    $retreat_dates = retreat_format_date_range($start_date, $end_date);
+    $email_body = get_retreat_registration_email_with_details(
+        $first_name,
+        $booking_data['retreat_type'] ?? '',
+        '',
+        '',
+        '',
+        $retreat_dates,
+        $destination,
+        '',
+        ''
+    );
+
+    wp_mail(
+        $email,
+        'تأكيد مشاركتك في رحلة تنفّس ✨',
+        $email_body,
+        ['Content-Type: text/html; charset=UTF-8']
+    );
     error_log('[Retreat IPN] Sent confirmation email to: ' . $email);
     
     // ============================================

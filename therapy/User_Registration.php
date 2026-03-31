@@ -2076,67 +2076,107 @@ function handle_therapy_logged_in_registration()
 /**
  * Send registration confirmation email
  */
+if (!function_exists('get_therapy_first_session_details')) {
+function get_therapy_first_session_details($group_id)
+{
+    global $wpdb;
+
+    $details = [
+        'date' => '',
+        'time' => '',
+        'link' => ''
+    ];
+
+    $group_id = intval($group_id);
+    if ($group_id <= 0) {
+        return $details;
+    }
+
+    $meetings_table = $wpdb->prefix . 'therapy_scheduled_meetings';
+    $meeting = $wpdb->get_row(
+        $wpdb->prepare(
+            "SELECT meeting_date, start_time, zoom_join_url, zoom_start_url
+             FROM {$meetings_table}
+             WHERE group_id = %d AND meeting_date >= CURDATE()
+             ORDER BY meeting_date ASC, start_time ASC
+             LIMIT 1",
+            $group_id
+        ),
+        ARRAY_A
+    );
+
+    if (!$meeting) {
+        $meeting = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT meeting_date, start_time, zoom_join_url, zoom_start_url
+                 FROM {$meetings_table}
+                 WHERE group_id = %d
+                 ORDER BY meeting_date ASC, start_time ASC
+                 LIMIT 1",
+                $group_id
+            ),
+            ARRAY_A
+        );
+    }
+
+    if ($meeting) {
+        $details['date'] = $meeting['meeting_date'] ? date_i18n('Y-m-d', strtotime($meeting['meeting_date'])) : '';
+        $details['time'] = $meeting['start_time'] ? date_i18n('H:i', strtotime($meeting['start_time'])) : '';
+        $details['link'] = $meeting['zoom_join_url'] ?: $meeting['zoom_start_url'];
+    }
+
+    return $details;
+}
+}
+
 if (!function_exists('send_therapy_registration_email')) {
 function send_therapy_registration_email($email, $first_name)
 {
-    $subject = 'Registration Confirmed – Tashafe Therapy Groups';
+    $subject = 'تأكيد تسجيلك في جلسات تنفّس الجماعية';
+
+    $user = get_user_by('email', $email);
+    $group_id = $user ? intval(get_user_meta($user->ID, 'assigned_group', true)) : 0;
+    $group_name = $group_id ? get_the_title($group_id) : 'مجموعة تنفّس';
+
+    $session_details = get_therapy_first_session_details($group_id);
+    $session_date = $session_details['date'] ?: 'سيتم تحديده لاحقًا';
+    $session_time = $session_details['time'] ?: 'سيتم تحديده لاحقًا';
+    $session_link = $session_details['link'] ?: '';
 
     $message = '
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
-        <title>Tashafe Registration</title>
+        <title>تأكيد التسجيل</title>
     </head>
-    <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif;">
+    <body style="margin:0; padding:0; background:#f6f6f6; font-family:Arial, sans-serif; direction:rtl;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f6; padding:40px 0;">
             <tr>
                 <td align="center">
                     <table width="600" cellpadding="0" cellspacing="0"
                         style="background:#ffffff; border-radius:10px; overflow:hidden;
                                box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-                        <!-- Header -->
                         <tr>
                             <td style="background:linear-gradient(135deg, #C3DDD2, #6059A6);
                                        padding:24px; text-align:center;
-                                       color:#ffffff; font-size:24px; font-weight:bold;">
-                                Tashafe Therapy Groups
+                                       color:#ffffff; font-size:22px; font-weight:bold;">
+                                تأكيد تسجيلك في جلسات تنفّس الجماعية
                             </td>
                         </tr>
-                        <!-- Body -->
                         <tr>
-                            <td style="padding:30px; color:#333; font-size:16px; line-height:26px;">
-                                <p>Hi ' . esc_html($first_name) . ',</p>
+                            <td style="padding:30px; color:#333; font-size:16px; line-height:28px; text-align:right;">
+                                <p>مرحبًا ' . esc_html($first_name) . '،</p>
+                                <p>شكرًا لتسجيلك في جروب العلاج النفسي الجماعي بعنوان<br>“' . esc_html($group_name) . '”</p>
+                                <p>نحن سعداء بانضمامك لهذه المساحة الداعمة 🤍<br>ونترقّب لقاءك في أول جلسة:</p>
                                 <p>
-                                    Thank you for registering with <strong>Tashafe Therapy Groups</strong>!
-                                    Your account has been successfully created.
+                                    📅 التاريخ: ' . esc_html($session_date) . '<br>
+                                    ⏰ الوقت: ' . esc_html($session_time) . '<br>
+                                    🔗 رابط الجلسة (Zoom): ' . ($session_link ? '<a href="' . esc_url($session_link) . '" style="color:#6059A6;">' . esc_html($session_link) . '</a>' : 'سيتم إرسال الرابط لاحقًا') . '
                                 </p>
-                                <p>
-                                    You are now part of our therapy community. We will be in touch
-                                    with more information about your group sessions soon.
-                                </p>
-                                <!-- Button -->
-                                <table cellspacing="0" cellpadding="0" style="margin-top:20px;">
-                                    <tr>
-                                        <td align="center">
-                                            <a href="https://tanafs.com.sa/dashboard"
-                                               style="display:inline-block; padding:14px 28px;
-                                                      background:linear-gradient(135deg, #C3DDD2, #6059A6);
-                                                      color:#fff; text-decoration:none;
-                                                      font-weight:600; border-radius:6px;
-                                                      font-size:16px;">
-                                                Visit Your Dashboard
-                                            </a>
-                                        </td>
-                                    </tr>
-                                </table>
-                            </td>
-                        </tr>
-                        <!-- Footer -->
-                        <tr>
-                            <td style="background:#f0f0f0; padding:16px; text-align:center;
-                                       font-size:12px; color:#666;">
-                                © ' . date("Y") . ' Tashafe — All Rights Reserved.
+                                <p>نوصيك بالانضمام قبل الموعد بدقائق، واختيار مكان هادئ يمنحك مساحة مريحة للمشاركة.</p>
+                                <p>في حال وجود أي استفسار، يسعدنا تواصلك معنا في أي وقت.</p>
+                                <p>بانتظارك 🤍<br>فريق تنفّس</p>
                             </td>
                         </tr>
                     </table>
@@ -2149,7 +2189,7 @@ function send_therapy_registration_email($email, $first_name)
 
     $headers = [
         'Content-Type: text/html; charset=UTF-8',
-        'From: Tashafe <no-reply@tanafs.com.sa>'
+        'From: Tanafs <no-reply@tanafs.com.sa>'
     ];
 
     wp_mail($email, $subject, $message, $headers);
@@ -2347,30 +2387,8 @@ function process_therapy_booking_from_ipn($booking_data, $booking_token) {
     // ============================================
     // 7. SEND CONFIRMATION EMAIL
     // ============================================
-    $group_title = $booking_data['group_title'] ?? get_the_title($group_id);
-    $session_start = '';
-    $session_expiry = '';
-    if (function_exists('get_field')) {
-        $session_start = get_field('session_start_date', $group_id);
-        $session_expiry = get_field('session_expiry_date', $group_id);
-    }
-    
-    $email_subject = 'Therapy Session Booking Confirmation - Tanafs';
-    $email_body = "Dear " . ($personal_info['first_name'] ?? '') . ",\n\n";
-    $email_body .= "Thank you for booking your therapy session with Tanafs!\n\n";
-    $email_body .= "Your booking has been confirmed.\n\n";
-    $email_body .= "Therapy Group: {$group_title}\n";
-    if ($session_start && $session_expiry) {
-        $email_body .= "Session Period: {$session_start} to {$session_expiry}\n";
-    }
-    $email_body .= "\nPayment Transaction ID: {$transaction_id}\n";
-    $email_body .= "Amount Paid: " . ($booking_data['amount'] ?? '0') . " " . ($booking_data['currency'] ?? 'SAR') . "\n\n";
-    $email_body .= "You can login at: " . wp_login_url() . "\n";
-    $email_body .= "Your username is your email: {$email}\n\n";
-    $email_body .= "We look forward to seeing you!\n\n";
-    $email_body .= "Best regards,\nTanafs Team";
-    
-    wp_mail($email, $email_subject, $email_body);
+    $email_first_name = $personal_info['first_name'] ?? ($booking_data['first_name'] ?? '');
+    send_therapy_registration_email($email, $email_first_name);
     error_log('[Therapy IPN] Sent confirmation email to: ' . $email);
     
     // ============================================
