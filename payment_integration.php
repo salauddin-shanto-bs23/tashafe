@@ -1152,7 +1152,7 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
     }
 
     $name_parts = tanafs_hyperpay_split_name($customer_details['name'] ?? '');
-    $is_test_mode = (tanafs_gateway_get_mode() !== 'live');
+    $is_test_mode = true;
     $billing_country = tanafs_hyperpay_normalize_country_code($customer_details['country'] ?? 'SA');
     $customer_phone = tanafs_hyperpay_normalize_phone($customer_details['phone'] ?? '');
 
@@ -1162,7 +1162,7 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
         'currency' => $currency,
         'paymentType' => 'DB',
         'merchantTransactionId' => $transaction_id,
-        'notificationUrl' => esc_url_raw(home_url('/payment-callback/')),
+        // 'notificationUrl' => esc_url_raw(home_url('/payment-callback/')),
         'customer.email' => sanitize_email($customer_details['email'] ?? ''),
         'customer.phone' => $customer_phone,
         'customer.givenName' => $name_parts['first_name'],
@@ -1172,59 +1172,23 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
         'billing.state' => sanitize_text_field($customer_details['state'] ?? 'Riyadh'),
         'billing.country' => $billing_country,
         'billing.postcode' => sanitize_text_field($customer_details['postcode'] ?? '11564'),
-        'shopperResultUrl' => esc_url_raw($return_url),
-        'customParameters[booking_token]' => sanitize_text_field($booking_token),
-        'customParameters[booking_type]' => sanitize_text_field($booking_type),
+        // 'shopperResultUrl' => esc_url_raw($return_url),
+        // 'customParameters[booking_token]' => sanitize_text_field($booking_token),
+        // 'customParameters[booking_type]' => sanitize_text_field($booking_type),
     ];
 
     $sandbox_minimal_payload = false;
     $integrity_requested = false;
     if ($is_test_mode) {
-        $sandbox_minimal_payload = (get_option('tanafs_hyperpay_sandbox_minimal_payload', '1') === '1');
-        if ($sandbox_minimal_payload) {
-            // Strict manual-curl profile used in known successful tests.
-            $request_body = [
-                'entityId' => $entity_id,
-                'amount' => $amount_formatted,
-                'currency' => $currency,
-                'paymentType' => 'DB',
-            ];
-        }
+        $request_body['integrity'] = true;
+        $request_body['testMode'] = 'EXTERNAL';
+        $request_body['customParameters[3DS2_enrolled]'] = true;
+        $request_body['customParameters[3DS2_flow]'] = 'challenge';
     }
 
-    $force_external_test_mode = false;
-    if ($is_test_mode) {
-        if (!$sandbox_minimal_payload) {
-            // Keep integrity enabled for Copy and Pay web script validation.
-            $request_body['integrity'] = 'true';
-            $integrity_requested = true;
-        }
+   
 
-        // Some test accounts behave differently with EXTERNAL + forced 3DS2.
-        // Make these opt-in to avoid creating non-payable checkout sessions.
-        $force_external_test_mode = (get_option('tanafs_hyperpay_force_external_test_mode', '0') === '1');
-        if ($force_external_test_mode && !$sandbox_minimal_payload) {
-            $request_body['testMode'] = 'EXTERNAL';
-            $request_body['customParameters[3DS2_enrolled]'] = 'true';
-            $request_body['customParameters[3DS2_flow]'] = 'challenge';
-        }
-    }
-
-    tanafs_log_payment('initiation_requested', [
-        'event' => 'initiation_requested',
-        'booking_token' => $booking_token,
-        'booking_type' => $booking_type,
-        'transaction_id' => $transaction_id,
-        'customer_phone' => $customer_phone,
-        'amount' => $amount_formatted,
-        'currency' => $currency,
-        'integrity_requested' => $integrity_requested ? 'true' : 'false',
-        'test_mode_requested' => ($is_test_mode && $force_external_test_mode && !$sandbox_minimal_payload) ? 'EXTERNAL' : '',
-        'three_ds2_enrolled_requested' => ($is_test_mode && $force_external_test_mode && !$sandbox_minimal_payload) ? 'true' : '',
-        'three_ds2_flow_requested' => ($is_test_mode && $force_external_test_mode && !$sandbox_minimal_payload) ? 'challenge' : '',
-        'sandbox_payload_profile' => ($is_test_mode && $sandbox_minimal_payload) ? 'minimal' : 'extended',
-        'request_fields' => array_keys($request_body),
-    ]);
+    tanafs_log_payment('initiation_requested', $request_body);
 
     $response = wp_remote_post(
         tanafs_hyperpay_get_checkout_endpoint(),
@@ -2145,12 +2109,18 @@ function tanafs_render_payment_widget_page() {
                         var body = new URLSearchParams();
                         body.append('action', 'tanafs_log_hyperpay_hosted_event');
                         body.append('booking_token', bookingToken || '');
+                        body.append('integrity', true);
                         body.append('checkout_id', checkoutId || '');
                         body.append('event_name', eventName || 'hosted_widget_event');
                         body.append('note', note || '');
                         body.append('page_url', window.location.href || '');
+                        console.log('[Tanafs HyperPay Hosted] logging event via beacon', {
+                            event_name: eventName,
+                            body: Object.fromEntries(body.entries())
+                        });
                         navigator.sendBeacon(ajaxUrl, body);
                     } catch (e) {
+                        console.error('Error logging hosted event:', e);
                         // Ignore logging transport failures.
                     }
                 }
