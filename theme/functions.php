@@ -1529,6 +1529,13 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
 
         $subject = "تحديث بخصوص مقالك";
 
+        $names = get_post_meta($post->ID, 'user_submit_name');
+        $author_name = is_array($names) ? $names[0] : $names;
+
+        if (empty($author_name)) {
+            $author_name = 'مؤلف'; // fallback (optional)
+        }
+
         $message = "
         <div dir='rtl' style='font-family: Arial, sans-serif; background:#ffffff; padding:30px; border-radius:10px; border:1px solid #eee; max-width:600px; margin:20px auto; direction:rtl; text-align:right;'>
 
@@ -1537,10 +1544,18 @@ add_action('transition_post_status', function ($new_status, $old_status, $post) 
             </div>
 
             <div style='padding:25px; color:#333;'>
-                <p>مرحبًا،</p>
+                <p>مرحبًا {$author_name}،</p>
                 <p>نود إبلاغك بأن مقالك بعنوان</p>
                 <p><strong>&quot;{$post->post_title}&quot;</strong></p>
                 <p>لم يتم اعتماده في هذه المرحلة، وبالتالي لم يتم نشره.</p>
+                <p>لعدم تماشيه مع أحد</p>
+                <p>معايير النشر في مكتبة تنفّس</p>
+                <p>وهي كالتالي:</p>
+                <p>١-أن يكون الموضوع مرتبطًا بالصحة النفسية أو المجتمع، ويخدم الوعي النفسي بشكل مباشر أو غير مباشر.</p>
+                <p>٢-سلامة اللغة والأسلوب، ووضوح الطرح بطريقة سلسة ومحترمة.</p>
+                <p>٣-دقة المعلومات، وارتكازها على مصادر موثوقة أو خبرة علمية.</p>
+                <p>٤-مراعاة الحساسية النفسية، وتجنب أي محتوى قد يكون مؤذيًا أو محفزًا سلبًا دون طرح داعم أو احتوائي.</p>
+                <p>٥-أن يقدّم المقال قيمة حقيقية (توعوية، أو إرشادية، أو تأملية عميقة)، وليس مجرد طرح عام أو سطحي</p>
                 <p>يمكنك مراجعة المحتوى وإعادة إرساله مرة أخرى متى رغبت.</p>
 
                 <p style='margin-top:30px; font-size:13px; color:#666;'>نقدّر جهدك ونسعد بمحاولتك مجددًا 🤍</p>
