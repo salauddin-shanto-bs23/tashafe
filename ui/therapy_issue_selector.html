@@ -1,0 +1,548 @@
+<div class="assessment-wrapper">
+
+    <!-- Title -->
+    <h3 class="assessment-title">Book your therapy sessions</h3>
+
+    <div class="assessment-form">
+        <label class="assessment-field">
+            <span>Select Issue</span>
+            <select id="issue-select">
+                <option value="">Select Issue</option>
+                <option>Anxiety</option>
+                <option>Depression</option>
+                <option>Relationship</option>
+                <option>Grief</option>
+            </select>
+        </label>
+
+        <label class="assessment-field">
+            <span>Gender</span>
+            <select id="gender-select">
+                <option value="">Select Gender</option>
+                <option>Male</option>
+                <option>Female</option>
+            </select>
+        </label>
+    </div>
+
+    <div id="group-message" class="group-message"></div>
+    <div id="submit-button-container"></div>
+
+    <!-- SESSION PERIOD SELECTION MODAL -->
+    <div id="session-period-modal" class="session-modal" style="display:none;">
+        <div class="session-modal-content">
+            <span class="close-session-modal">&times;</span>
+            <h3 class="session-title">Select Session Period</h3>
+            <p class="session-subtitle">Please choose your preferred therapy session period:</p>
+            <div id="session-periods-list" class="session-periods-list"></div>
+            <div class="session-modal-footer">
+                <button type="button" class="waiting-list-footer-btn" id="sessionModalWaitingBtn">
+                    Put me on the waiting list if other dates are available
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- WAITING LIST MODAL -->
+    <div id="waiting-list-modal" class="waiting-modal" style="display:none;">
+        <div class="waiting-modal-content">
+
+            <span class="close-waiting-modal">&times;</span>
+
+            <h3 class="waiting-title">Join Waiting List</h3>
+
+            <form id="waiting-list-form" class="waiting-form">
+                <input type="text" name="name" placeholder="Full Name" required>
+                <input type="email" name="email" placeholder="Email Address" required>
+                <input type="text" name="phone" placeholder="Phone Number">
+
+                <input type="hidden" name="topic" id="waiting-topic">
+                <input type="hidden" name="gender" id="waiting-gender">
+
+                <button type="submit" class="waiting-submit-btn">Submit</button>
+            </form>
+
+            <div class="waiting-success">Thank you! You have been added to the waiting list.</div>
+        </div>
+    </div>
+
+</div>
+
+
+
+
+<style>
+    /* ---------- WRAPPER ---------- */
+    .assessment-wrapper {
+        background: #fff;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    body.assessment-modal-open {
+        overflow: hidden;
+    }
+
+    /* ---------- TITLE ---------- */
+    .assessment-title {
+        margin-bottom: 15px;
+        font-family: "DM Sans", sans-serif;
+        font-weight: 700;
+        font-size: 20px;
+    }
+
+    /* ---------- FORM LAYOUT ---------- */
+    .assessment-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+
+    .assessment-field {
+        flex: 1 1 240px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Inputs */
+    .assessment-field select {
+        width: 100%;
+        padding: 12px 10px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        font-size: 16px;
+    }
+
+    /* Message styles */
+    .group-message {
+        margin-top: 12px;
+        font-weight: 600;
+    }
+
+    /* Button container centering */
+    #submit-button-container {
+        text-align: center;
+        margin-top: 15px;
+    }
+
+    /* ---------- Join Waiting Button ---------- */
+    .join-waiting-btn {
+        padding: 15px 25px;
+        background: #6059A6;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 16px;
+        transition: 0.3s;
+    }
+
+    .join-waiting-btn:hover {
+        opacity: 0.9;
+    }
+
+    /* ---------- SESSION PERIOD MODAL ---------- */
+    .session-modal {
+        position: fixed;
+        z-index: 9999;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.45);
+        display: none;
+        overflow-y: auto;
+    }
+
+    .session-modal-content {
+        background: #fff;
+        max-width: 500px;
+        margin: 60px auto;
+        border-radius: 12px;
+        padding: 25px;
+        position: relative;
+        animation: slideDown .3s ease-out;
+    }
+
+    .close-session-modal {
+        position: absolute;
+        top: 12px;
+        right: 16px;
+        font-size: 24px;
+        cursor: pointer;
+        z-index: 1;
+        color: #666;
+    }
+
+    .close-session-modal:hover {
+        color: #333;
+    }
+
+    .session-title {
+        margin: 0 0 10px 0;
+        font-weight: 700;
+        font-size: 20px;
+        padding-right: 30px;
+    }
+
+    .session-subtitle {
+        margin: 0 0 20px 0;
+        color: #666;
+        font-size: 14px;
+    }
+
+    .session-periods-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .session-period-item {
+        padding: 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: #fff;
+    }
+
+    .session-period-item:hover {
+        border-color: #6059A6;
+        background: #f8f7fc;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(96, 89, 166, 0.15);
+    }
+
+    .session-period-item strong {
+        display: block;
+        margin-bottom: 5px;
+        color: #6059A6;
+        font-size: 16px;
+    }
+
+    .session-period-item span {
+        color: #666;
+        font-size: 14px;
+    }
+
+    .session-modal-footer {
+        padding-top: 20px;
+        border-top: 1px solid #e0e0e0;
+        margin-top: 10px;
+    }
+
+    .waiting-list-footer-btn {
+        background: linear-gradient(135deg, #C3DDD2, #6059A6);
+        color: #fff;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: opacity 0.3s;
+        width: 100%;
+        display: block;
+    }
+
+    .waiting-list-footer-btn:hover {
+        opacity: 0.9;
+    }
+
+    /* ---------- WAITING MODAL ---------- */
+    .waiting-modal {
+        position: fixed;
+        z-index: 9999;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.45);
+        display: none;
+    }
+
+    .waiting-modal-content {
+        background: #fff;
+        max-width: 420px;
+        margin: 60px auto;
+        border-radius: 12px;
+        padding: 25px;
+        position: relative;
+        animation: slideDown .3s ease-out;
+    }
+
+    .close-waiting-modal {
+        position: absolute;
+        top: 10px;
+        right: 14px;
+        font-size: 22px;
+        cursor: pointer;
+    }
+
+    .waiting-title {
+        margin-bottom: 15px;
+        font-weight: 700;
+        font-size: 20px;
+    }
+
+    /* ---------- Form NO margin/padding ---------- */
+    .waiting-form {
+        padding: 0;
+        margin: 0;
+    }
+
+    .waiting-form input {
+        width: 100%;
+        padding: 12px;
+        margin: 8px 0 0 0;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        box-sizing: border-box;
+    }
+
+    .waiting-submit-btn {
+        width: 100%;
+        margin-top: 12px;
+        padding: 12px;
+        background: linear-gradient(135deg, #C3DDD2, #6059A6);
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.3s ease;
+    }
+
+    .waiting-submit-btn:hover {
+        opacity: 0.9;
+    }
+
+    .waiting-success {
+        display: none;
+        color: green;
+        margin-top: 15px;
+        font-weight: 600;
+    }
+
+    /* Modal animation */
+    @keyframes slideDown {
+        from {
+            transform: translateY(-20px);
+            opacity: 0;
+        }
+
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+
+    /* ---------- MOBILE ---------- */
+    @media(max-width: 480px) {
+        .assessment-wrapper {
+            padding: 15px;
+        }
+
+        .assessment-field {
+            flex: 1 1 100%;
+        }
+
+        .session-modal-content {
+            margin: 20px;
+            max-width: calc(100% - 40px);
+            padding: 20px;
+        }
+    }
+</style>
+
+
+
+
+
+<script>
+    jQuery(document).ready(function ($) {
+
+        const assessmentAjax = (window.assessment_ajax && window.assessment_ajax.ajaxurl && window.assessment_ajax.site_url)
+            ? window.assessment_ajax
+            : {
+                ajaxurl: (window.location.origin ? window.location.origin + '/wp-admin/admin-ajax.php' : '/wp-admin/admin-ajax.php'),
+                site_url: window.location.origin || ''
+            };
+
+        const buttonContainer = $('#submit-button-container');
+        const messageBox = $('#group-message');
+        const waitingModal = $('#waiting-list-modal');
+        const sessionModal = $('#session-period-modal');
+        const modalForm = $('#waiting-list-form');
+        const pageBody = $('body');
+
+        waitingModal.appendTo('body');
+        sessionModal.appendTo('body');
+
+        function lockBodyScroll() {
+            pageBody.addClass('assessment-modal-open');
+        }
+
+        function unlockBodyScroll() {
+            if (!waitingModal.is(':visible') && !sessionModal.is(':visible')) {
+                pageBody.removeClass('assessment-modal-open');
+            }
+        }
+
+        function resetWaitingListForm() {
+            waitingModal.hide();
+            modalForm[0].reset();
+            $('.waiting-success').hide();
+            $('.join-waiting-btn').show();
+            unlockBodyScroll();
+        }
+
+        function resetSessionModal() {
+            sessionModal.hide();
+            $('#session-periods-list').empty();
+            unlockBodyScroll();
+        }
+
+        function updateButton() {
+            const issue = $('#issue-select').val();
+            const gender = $('#gender-select').val();
+
+            // Reset UI fully when dropdowns change
+            resetWaitingListForm();
+            resetSessionModal();
+            buttonContainer.html('');
+            messageBox.html('');
+
+            if (!issue || !gender) {
+                messageBox.html('⚠ Please select both Issue and Gender').css('color', 'orange');
+                return;
+            }
+
+            $.post(assessmentAjax.ajaxurl, {
+                action: 'render_assessment_button_new',
+                issue: issue.toLowerCase(),
+                gender: gender.toLowerCase()
+            }, function (response) {
+
+                if (response.includes('disabled')) {
+
+                    messageBox.html('❌ Group not available. You can join the waiting list.').css('color', 'red');
+
+                    // Show button
+                    buttonContainer.html('<button class="join-waiting-btn">Join Waiting List</button>');
+
+                    // Set hidden fields
+                    $('#waiting-topic').val(issue.toLowerCase());
+                    $('#waiting-gender').val(gender.toLowerCase());
+
+                    // Modal open
+                    $('.join-waiting-btn').on('click', function () {
+                        lockBodyScroll();
+                        waitingModal.show();
+                        $('.join-waiting-btn').hide();
+                    });
+
+                } else {
+                    messageBox.html('✅ Group is available! Hurry up and register.').css('color', 'green');
+                    buttonContainer.html(response);
+
+                    // Attach event to the dynamically loaded button
+                    $('.open-session-modal-btn').on('click', function () {
+                        const groups = $(this).data('groups');
+                        const issue = $(this).data('issue');
+                        const gender = $(this).data('gender');
+
+                        showSessionPeriodModal(groups, issue, gender);
+                    });
+                }
+
+            });
+
+        }
+
+        function showSessionPeriodModal(groups, issue, gender) {
+            const periodsList = $('#session-periods-list');
+            periodsList.empty();
+
+            if (!groups || groups.length === 0) {
+                periodsList.html('<p style="text-align:center; color:#999;">No sessions available</p>');
+            } else {
+                groups.forEach(function (group) {
+                    const periodItem = $('<div class="session-period-item"></div>');
+                    periodItem.html('<strong>Session Period</strong><span>' + group.display + '</span>');
+
+                    periodItem.on('click', function () {
+                        // Redirect to assessment page with group_id
+                        const redirectUrl = assessmentAjax.site_url + '/' + issue + '-assessment?gender=' + gender + '&issue=' + issue + '&group_id=' + group.id;
+                        window.location.href = redirectUrl;
+                    });
+
+                    periodsList.append(periodItem);
+                });
+            }
+
+            sessionModal.show();
+            lockBodyScroll();
+
+            // Set hidden fields for waiting list
+            $('#waiting-topic').val(issue);
+            $('#waiting-gender').val(gender);
+        }
+
+        // Handle waiting list button click from session modal
+        $(document).on('click', '#sessionModalWaitingBtn', function (e) {
+            e.preventDefault();
+            sessionModal.hide();
+            waitingModal.show();
+        });
+
+        // Watch dropdowns
+        $('#issue-select').on('change', updateButton);
+        $('#gender-select').on('change', updateButton);
+
+        // Close session modal
+        $('.close-session-modal').on('click', function () {
+            resetSessionModal();
+        });
+
+        // Close waiting modal
+        $('.close-waiting-modal').on('click', function () {
+            resetWaitingListForm();
+        });
+
+        // Close modals when clicking outside
+        $(window).on('click', function (e) {
+            if ($(e.target).is('#session-period-modal')) {
+                resetSessionModal();
+            }
+            if ($(e.target).is('#waiting-list-modal')) {
+                resetWaitingListForm();
+            }
+        });
+
+        // AJAX submit waiting list
+        modalForm.on('submit', function (e) {
+            e.preventDefault();
+
+            var formData = modalForm.serialize();
+
+            $.post(assessmentAjax.ajaxurl, {
+                action: 'add_to_waiting_list',
+                form: formData
+            }, function (response) {
+                if (response.success) {
+                    $('.waiting-success').show();
+                    modalForm[0].reset();
+                } else {
+                    alert('Error! Please try again.');
+                }
+            });
+        });
+
+    });
+</script>

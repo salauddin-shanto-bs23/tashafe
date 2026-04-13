@@ -1077,6 +1077,25 @@ function ajax_render_assessment_button_new()
 // }
 // add_action('wp_enqueue_scripts', 'enqueue_assessment_js');
 
+// Ensure Elementor HTML widget scripts can always access assessment AJAX config.
+function tanafs_print_assessment_ajax_config()
+{
+    if (is_admin()) {
+        return;
+    }
+
+    $config = [
+        'ajaxurl' => admin_url('admin-ajax.php'),
+        'site_url' => site_url(),
+    ];
+    ?>
+    <script id="tanafs-assessment-ajax-config">
+        window.assessment_ajax = window.assessment_ajax || <?php echo wp_json_encode($config); ?>;
+    </script>
+    <?php
+}
+add_action('wp_head', 'tanafs_print_assessment_ajax_config', 5);
+
 // Fix for session period modal - override the default modal behavior
 add_action('wp_footer', 'fix_session_period_modal_js', 100);
 function fix_session_period_modal_js()
