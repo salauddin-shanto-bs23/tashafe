@@ -842,6 +842,12 @@ function render_therapy_registration_form()
                 const selectedGroupId = <?php echo $preselected_group_id > 0 ? intval($preselected_group_id) : 0; ?>;
                 const isPaymentReturn = <?php echo $is_payment_return ? 'true' : 'false'; ?>;
                 const paymentReturnToken = '<?php echo esc_js($payment_return); ?>';
+                const tanafsPaymentMethodAvailability = <?php echo wp_json_encode([
+                    'card' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('card') : true,
+                    'tamara' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('tamara') : true,
+                    'applepay' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('applepay') : true,
+                ]); ?>;
+                const tanafsComingSoonText = isRtl ? 'قريباً' : 'Coming soon';
                 
                 // DEBUG: Log initial state
                 console.log('[Therapy Payment DEBUG] Page loaded');
@@ -865,6 +871,117 @@ function render_therapy_registration_form()
                     statusEl.style.color = isError ? '#dc2626' : '#666';
                 }
 
+                function tanafsGetBrandsByMethod(method) {
+                    if (method === 'tamara') {
+                        return 'TAMARA';
+                    }
+                    if (method === 'applepay') {
+                        return 'APPLEPAY';
+                    }
+                    return 'MADA VISA MASTER';
+                }
+
+                function tanafsEnsurePaymentMethodModalStyles() {
+                    if (document.getElementById('tanafs-payment-method-modal-style')) {
+                        return;
+                    }
+
+                    const style = document.createElement('style');
+                    style.id = 'tanafs-payment-method-modal-style';
+                    style.textContent = '\
+                    .tanafs-payment-method-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100002; display: flex; align-items: center; justify-content: center; padding: 16px; }\
+                    .tanafs-payment-method-modal { width: 100%; max-width: 520px; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 36px rgba(0,0,0,0.2); }\
+                    .tanafs-payment-method-header { padding: 18px 20px; background: linear-gradient(135deg, #9B8DC8 0%, #8ECFC3 100%); color: #fff; }\
+                    .tanafs-payment-method-header h3 { margin: 0; font-size: 20px; }\
+                    .tanafs-payment-method-body { padding: 18px 20px; }\
+                    .tanafs-payment-method-option { display: flex; align-items: center; gap: 10px; border: 1px solid #dcdcdc; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; }\
+                    .tanafs-payment-method-option:hover { border-color: #6059A6; background: #f7f6fc; }\
+                    .tanafs-payment-method-option.disabled { cursor: not-allowed; opacity: 0.65; background: #f7f7f7; }\
+                    .tanafs-payment-method-option.disabled:hover { border-color: #dcdcdc; background: #f7f7f7; }\
+                    .tanafs-payment-method-option input { margin: 0; }\
+                    .tanafs-payment-method-coming-soon { margin-' + (isRtl ? 'right' : 'left') + ': auto; font-size: 12px; color: #9a6a00; background: #fff3cd; padding: 2px 8px; border-radius: 999px; }\
+                    .tanafs-payment-method-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }\
+                    .tanafs-payment-method-btn { border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; cursor: pointer; }\
+                    .tanafs-payment-method-btn.cancel { background: #ececec; color: #333; }\
+                    .tanafs-payment-method-btn.continue { background: #6059A6; color: #fff; }\
+                    ';
+                    document.head.appendChild(style);
+                }
+
+                function tanafsShowPaymentMethodModal(onConfirm) {
+                    tanafsEnsurePaymentMethodModalStyles();
+
+                    const methods = ['card', 'tamara', 'applepay'];
+                    const hasEnabled = methods.some(function(method) {
+                        return !!tanafsPaymentMethodAvailability[method];
+                    });
+
+                    if (!hasEnabled) {
+                        setStatus('No payment methods are currently available. Please contact support.', true);
+                        return;
+                    }
+
+                    let optionsHtml = '';
+                    let isFirstEnabled = true;
+                    methods.forEach(function(method) {
+                        let label = 'Mada / Visa / Mastercard';
+                        if (method === 'tamara') {
+                            label = 'Tamara';
+                        } else if (method === 'applepay') {
+                            label = 'Apple Pay';
+                        }
+
+                        const isEnabled = !!tanafsPaymentMethodAvailability[method];
+                        const checked = isEnabled && isFirstEnabled ? ' checked' : '';
+                        if (isEnabled && isFirstEnabled) {
+                            isFirstEnabled = false;
+                        }
+
+                        optionsHtml += '<label class="tanafs-payment-method-option' + (isEnabled ? '' : ' disabled') + '">'
+                            + '<input type="radio" name="tanafs_payment_method" value="' + method + '"' + checked + (isEnabled ? '' : ' disabled') + '>'
+                            + '<span>' + label + '</span>'
+                            + (isEnabled ? '' : '<span class="tanafs-payment-method-coming-soon">' + tanafsComingSoonText + '</span>')
+                            + '</label>';
+                    });
+
+                    const modal = document.createElement('div');
+                    modal.className = 'tanafs-payment-method-overlay';
+                    modal.innerHTML = ''
+                        + '<div class="tanafs-payment-method-modal">'
+                        + '  <div class="tanafs-payment-method-header"><h3>Select Payment Method</h3></div>'
+                        + '  <div class="tanafs-payment-method-body">'
+                        + optionsHtml
+                        + '    <div class="tanafs-payment-method-actions">'
+                        + '      <button type="button" class="tanafs-payment-method-btn cancel">Cancel</button>'
+                        + '      <button type="button" class="tanafs-payment-method-btn continue">Continue</button>'
+                        + '    </div>'
+                        + '  </div>'
+                        + '</div>';
+
+                    document.body.appendChild(modal);
+
+                    modal.querySelector('.tanafs-payment-method-btn.cancel').addEventListener('click', function() {
+                        modal.remove();
+                    });
+
+                    modal.querySelector('.tanafs-payment-method-btn.continue').addEventListener('click', function() {
+                        const selected = modal.querySelector('input[name="tanafs_payment_method"]:checked');
+                        if (!selected) {
+                            setStatus(isRtl ? 'يرجى اختيار طريقة دفع متاحة.' : 'Please select an available payment method.', true);
+                            return;
+                        }
+                        const method = selected.value;
+                        modal.remove();
+                        onConfirm(method);
+                    });
+
+                    modal.addEventListener('click', function(e) {
+                        if (e.target === modal) {
+                            modal.remove();
+                        }
+                    });
+                }
+
                 function initiatePayment() {
                     console.log('[Therapy Payment DEBUG] initiatePayment called');
                     console.log('[Therapy Payment DEBUG] Sending group_id:', selectedGroupId);
@@ -876,52 +993,56 @@ function render_therapy_registration_form()
                         return;
                     }
 
-                    payBtn.disabled = true;
-                    payBtn.classList.add('loading');
-                    setStatus(messages.processing, false);
+                    tanafsShowPaymentMethodModal(function(selectedPaymentMethod) {
+                        payBtn.disabled = true;
+                        payBtn.classList.add('loading');
+                        setStatus(messages.processing, false);
 
-                    const formData = new FormData();
-                    formData.append('action', 'tanafs_initiate_therapy_payment_logged_in');
-                    formData.append('nonce', THERAPY_REG_AJAX.nonce);
-                    formData.append('selected_group_id', selectedGroupId);
-        
-                    fetch(THERAPY_REG_AJAX.url, {
-                        method: 'POST',
-                        body: formData,
-                        credentials: 'same-origin'
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        console.log('[Therapy Payment DEBUG] Payment initiation response:', data);
-                        if (data.data?.debug) {
-                            console.log('[Therapy Payment DEBUG] Server debug info:', data.data.debug);
-                        }
-                        if (data.success && data.data.gateway === 'hyperpay' && data.data.checkout_id && data.data.widget_url) {
-                            setStatus(messages.redirectingPayment, false);
-                            tanafsLaunchHyperPayCheckout(data.data);
-                        } else {
-                            throw new Error(data.data?.message || 'Payment initiation failed');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('[Therapy Payment DEBUG] Payment error:', error);
-                        setStatus(error.message || messages.error, true);
-                        payBtn.disabled = false;
-                        payBtn.classList.remove('loading');
-                        retryBtn.style.display = 'inline-block';
+                        const formData = new FormData();
+                        formData.append('action', 'tanafs_initiate_therapy_payment_logged_in');
+                        formData.append('nonce', THERAPY_REG_AJAX.nonce);
+                        formData.append('selected_group_id', selectedGroupId);
+                        formData.append('payment_method', selectedPaymentMethod);
+            
+                        fetch(THERAPY_REG_AJAX.url, {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin'
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            console.log('[Therapy Payment DEBUG] Payment initiation response:', data);
+                            if (data.data?.debug) {
+                                console.log('[Therapy Payment DEBUG] Server debug info:', data.data.debug);
+                            }
+                            if (data.success && data.data.gateway === 'hyperpay' && data.data.checkout_id && data.data.widget_url) {
+                                setStatus(messages.redirectingPayment, false);
+                                tanafsLaunchHyperPayCheckout(data.data, selectedPaymentMethod);
+                            } else {
+                                throw new Error(data.data?.message || 'Payment initiation failed');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('[Therapy Payment DEBUG] Payment error:', error);
+                            setStatus(error.message || messages.error, true);
+                            payBtn.disabled = false;
+                            payBtn.classList.remove('loading');
+                            retryBtn.style.display = 'inline-block';
+                        });
                     });
 
                 }
 
-                function tanafsLaunchHyperPayCheckout(payload) {
+                function tanafsLaunchHyperPayCheckout(payload, selectedPaymentMethod) {
                     window.wpwlOptions = {};
+                    const brands = payload.brands || tanafsGetBrandsByMethod(selectedPaymentMethod || payload.payment_method || 'card');
 
                     const overlay = document.createElement('div');
                     overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
                     overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
                         + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
                         + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
-                        + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>'
+                        + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="' + brands + '"></form>'
                         + '</div>';
                     document.body.appendChild(overlay);
 
@@ -1593,6 +1714,124 @@ function render_therapy_registration_form()
                 alertBox.className = 'therapy-reg-alert';
             }
 
+            const tanafsPaymentMethodAvailability = <?php echo wp_json_encode([
+                'card' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('card') : true,
+                'tamara' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('tamara') : true,
+                'applepay' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('applepay') : true,
+            ]); ?>;
+            const tanafsComingSoonText = isRtl ? 'قريباً' : 'Coming soon';
+
+            function tanafsGetBrandsByMethod(method) {
+                if (method === 'tamara') {
+                    return 'TAMARA';
+                }
+                if (method === 'applepay') {
+                    return 'APPLEPAY';
+                }
+                return 'MADA VISA MASTER';
+            }
+
+            function tanafsEnsurePaymentMethodModalStyles() {
+                if (document.getElementById('tanafs-payment-method-modal-style')) {
+                    return;
+                }
+
+                const style = document.createElement('style');
+                style.id = 'tanafs-payment-method-modal-style';
+                style.textContent = '\
+                .tanafs-payment-method-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100002; display: flex; align-items: center; justify-content: center; padding: 16px; }\
+                .tanafs-payment-method-modal { width: 100%; max-width: 520px; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 36px rgba(0,0,0,0.2); }\
+                .tanafs-payment-method-header { padding: 18px 20px; background: linear-gradient(135deg, #9B8DC8 0%, #8ECFC3 100%); color: #fff; }\
+                .tanafs-payment-method-header h3 { margin: 0; font-size: 20px; }\
+                .tanafs-payment-method-body { padding: 18px 20px; }\
+                .tanafs-payment-method-option { display: flex; align-items: center; gap: 10px; border: 1px solid #dcdcdc; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; }\
+                .tanafs-payment-method-option:hover { border-color: #6059A6; background: #f7f6fc; }\
+                .tanafs-payment-method-option.disabled { cursor: not-allowed; opacity: 0.65; background: #f7f7f7; }\
+                .tanafs-payment-method-option.disabled:hover { border-color: #dcdcdc; background: #f7f7f7; }\
+                .tanafs-payment-method-option input { margin: 0; }\
+                .tanafs-payment-method-coming-soon { margin-' + (isRtl ? 'right' : 'left') + ': auto; font-size: 12px; color: #9a6a00; background: #fff3cd; padding: 2px 8px; border-radius: 999px; }\
+                .tanafs-payment-method-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }\
+                .tanafs-payment-method-btn { border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; cursor: pointer; }\
+                .tanafs-payment-method-btn.cancel { background: #ececec; color: #333; }\
+                .tanafs-payment-method-btn.continue { background: #6059A6; color: #fff; }\
+                ';
+                document.head.appendChild(style);
+            }
+
+            function tanafsShowPaymentMethodModal(onConfirm) {
+                tanafsEnsurePaymentMethodModalStyles();
+
+                const methods = ['card', 'tamara', 'applepay'];
+                const hasEnabled = methods.some(function(method) {
+                    return !!tanafsPaymentMethodAvailability[method];
+                });
+
+                if (!hasEnabled) {
+                    showAlert('No payment methods are currently available. Please contact support.', 'error');
+                    return;
+                }
+
+                let optionsHtml = '';
+                let isFirstEnabled = true;
+                methods.forEach(function(method) {
+                    let label = 'Mada / Visa / Mastercard';
+                    if (method === 'tamara') {
+                        label = 'Tamara';
+                    } else if (method === 'applepay') {
+                        label = 'Apple Pay';
+                    }
+
+                    const isEnabled = !!tanafsPaymentMethodAvailability[method];
+                    const checked = isEnabled && isFirstEnabled ? ' checked' : '';
+                    if (isEnabled && isFirstEnabled) {
+                        isFirstEnabled = false;
+                    }
+
+                    optionsHtml += '<label class="tanafs-payment-method-option' + (isEnabled ? '' : ' disabled') + '">'
+                        + '<input type="radio" name="tanafs_payment_method" value="' + method + '"' + checked + (isEnabled ? '' : ' disabled') + '>'
+                        + '<span>' + label + '</span>'
+                        + (isEnabled ? '' : '<span class="tanafs-payment-method-coming-soon">' + tanafsComingSoonText + '</span>')
+                        + '</label>';
+                });
+
+                const modal = document.createElement('div');
+                modal.className = 'tanafs-payment-method-overlay';
+                modal.innerHTML = ''
+                    + '<div class="tanafs-payment-method-modal">'
+                    + '  <div class="tanafs-payment-method-header"><h3>Select Payment Method</h3></div>'
+                    + '  <div class="tanafs-payment-method-body">'
+                    + optionsHtml
+                    + '    <div class="tanafs-payment-method-actions">'
+                    + '      <button type="button" class="tanafs-payment-method-btn cancel">Cancel</button>'
+                    + '      <button type="button" class="tanafs-payment-method-btn continue">Continue</button>'
+                    + '    </div>'
+                    + '  </div>'
+                    + '</div>';
+
+                document.body.appendChild(modal);
+
+                modal.querySelector('.tanafs-payment-method-btn.cancel').addEventListener('click', function() {
+                    modal.remove();
+                });
+
+                modal.querySelector('.tanafs-payment-method-btn.continue').addEventListener('click', function() {
+                    const selected = modal.querySelector('input[name="tanafs_payment_method"]:checked');
+                    if (!selected) {
+                        showAlert(isRtl ? 'يرجى اختيار طريقة دفع متاحة.' : 'Please select an available payment method.', 'error');
+                        return;
+                    }
+                    const method = selected.value;
+                    modal.remove();
+                    onConfirm(method);
+                });
+
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        modal.remove();
+                    }
+                });
+            }
+
             function validateForm() {
                 let isValid = true;
                 hideAlert();
@@ -1683,76 +1922,80 @@ function render_therapy_registration_form()
                     return;
                 }
 
-                submitBtn.disabled = true;
-                submitBtn.classList.add('loading');
-                submitBtn.textContent = messages.processing;
-                hideAlert();
+                tanafsShowPaymentMethodModal(function(selectedPaymentMethod) {
+                    submitBtn.disabled = true;
+                    submitBtn.classList.add('loading');
+                    submitBtn.textContent = messages.processing;
+                    hideAlert();
 
-                const formData = new FormData(form);
-                formData.set('action', 'save_therapy_booking_data'); // First step: save booking data
+                    const formData = new FormData(form);
+                    formData.set('action', 'save_therapy_booking_data');
 
-                // STEP 1: Save booking data to transient
-                fetch(THERAPY_REG_AJAX.url, {
-                        method: 'POST',
-                        body: formData,
-                        credentials: 'same-origin'
-                    })
-                    .then(function(response) {
-                        return response.json();
-                    })
-                    .then(function(data) {
-                        if (data.success) {
-                            // Booking data saved, now initiate payment
-                            submitBtn.textContent = messages.redirectingPayment;
-                            
-                            const bookingToken = data.data.booking_token;
-                            
-                            // STEP 2: Initiate payment
-                            const paymentData = new FormData();
-                            paymentData.append('action', 'tanafs_initiate_therapy_payment');
-                            paymentData.append('nonce', form.querySelector('[name="nonce"]').value);
-                            paymentData.append('booking_token', bookingToken);
-                            
-                            return fetch(THERAPY_REG_AJAX.url, {
-                                method: 'POST',
-                                body: paymentData,
-                                credentials: 'same-origin'
-                            }).then(res => res.json());
-                        } else {
-                            // Extract error message properly (handle both string and object)
-                            const errorMsg = (typeof data.data === 'object' && data.data.message) 
-                                ? data.data.message 
+                    fetch(THERAPY_REG_AJAX.url, {
+                            method: 'POST',
+                            body: formData,
+                            credentials: 'same-origin'
+                        })
+                        .then(function(response) {
+                            return response.json();
+                        })
+                        .then(function(data) {
+                            if (data.success) {
+                                submitBtn.textContent = messages.redirectingPayment;
+                                const bookingToken = data.data.booking_token;
+
+                                const paymentData = new FormData();
+                                paymentData.append('action', 'tanafs_initiate_therapy_payment');
+                                paymentData.append('nonce', form.querySelector('[name="nonce"]').value);
+                                paymentData.append('booking_token', bookingToken);
+                                paymentData.append('payment_method', selectedPaymentMethod);
+
+                                return fetch(THERAPY_REG_AJAX.url, {
+                                    method: 'POST',
+                                    body: paymentData,
+                                    credentials: 'same-origin'
+                                }).then(function(res) {
+                                    return res.json();
+                                });
+                            }
+
+                            const errorMsg = (typeof data.data === 'object' && data.data.message)
+                                ? data.data.message
                                 : (typeof data.data === 'string' ? data.data : 'Failed to save booking data');
                             throw new Error(errorMsg);
-                        }
-                    })
-                    .then(function(paymentResponse) {
-                        if (paymentResponse.success && paymentResponse.data.gateway === 'hyperpay' && paymentResponse.data.checkout_id && paymentResponse.data.widget_url) {
-                            showAlert(messages.redirectingPayment, 'success');
-                            tanafsLaunchHyperPayCheckout(paymentResponse.data);
-                        } else {
+                        })
+                        .then(function(paymentResponse) {
+                            if (paymentResponse.success && paymentResponse.data.gateway === 'hyperpay' && paymentResponse.data.checkout_id && paymentResponse.data.widget_url) {
+                                showAlert(messages.redirectingPayment, 'success');
+                                tanafsLaunchHyperPayCheckout(paymentResponse.data, selectedPaymentMethod);
+                                return;
+                            }
+
                             throw new Error(paymentResponse.data?.message || 'Failed to initiate payment');
-                        }
-                    })
-                    .catch(function(error) {
-                        console.error('Payment flow error:', error);
-                        showAlert(error.message || (isRtl ? 'حدث خطأ. يرجى المحاولة مرة أخرى.' : 'An error occurred. Please try again.'), 'error');
-                        submitBtn.disabled = false;
-                        submitBtn.classList.remove('loading');
-                        submitBtn.textContent = messages.continuePayment;
-                    });
+                        })
+                        .catch(function(error) {
+                            console.error('Payment flow error:', error);
+                            showAlert(error.message || (isRtl ? 'حدث خطأ. يرجى المحاولة مرة أخرى.' : 'An error occurred. Please try again.'), 'error');
+                            submitBtn.disabled = false;
+                            submitBtn.classList.remove('loading');
+                            submitBtn.textContent = messages.continuePayment;
+                        });
+                });
             });
         })();
 
-        function tanafsLaunchHyperPayCheckout(payload) {
+        function tanafsLaunchHyperPayCheckout(payload, selectedPaymentMethod) {
             window.wpwlOptions = {};
+
+            const method = selectedPaymentMethod || payload.payment_method || 'card';
+            const brands = payload.brands || (method === 'tamara' ? 'TAMARA' : (method === 'applepay' ? 'APPLEPAY' : 'MADA VISA MASTER'));
 
             const overlay = document.createElement('div');
             overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
             overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
                 + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
                 + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
-                + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>'
+                + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="' + brands + '"></form>'
                 + '</div>';
             document.body.appendChild(overlay);
 

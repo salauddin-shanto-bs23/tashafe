@@ -179,6 +179,9 @@ function tanafs_render_payment_config_page() {
         $currency = sanitize_text_field($_POST['currency'] ?? 'SAR');
         $force_external_test_mode = isset($_POST['force_external_test_mode']) ? '1' : '0';
         $sandbox_minimal_payload = isset($_POST['sandbox_minimal_payload']) ? '1' : '0';
+        $enable_card = isset($_POST['enable_card']) ? '1' : '0';
+        $enable_tamara = isset($_POST['enable_tamara']) ? '1' : '0';
+        $enable_applepay = isset($_POST['enable_applepay']) ? '1' : '0';
 
         // Keep compatibility with existing mode checks that use "live".
         if ($mode === 'production') {
@@ -191,6 +194,9 @@ function tanafs_render_payment_config_page() {
         update_option('tanafs_hyperpay_currency', $currency);
         update_option('tanafs_hyperpay_force_external_test_mode', $force_external_test_mode);
         update_option('tanafs_hyperpay_sandbox_minimal_payload', $sandbox_minimal_payload);
+        update_option('tanafs_hyperpay_enable_card', $enable_card);
+        update_option('tanafs_hyperpay_enable_tamara', $enable_tamara);
+        update_option('tanafs_hyperpay_enable_applepay', $enable_applepay);
 
         // Keep mode/currency mirrored during migration so legacy reads do not break.
         update_option('tanafs_aps_mode', $mode);
@@ -206,6 +212,9 @@ function tanafs_render_payment_config_page() {
     $currency = get_option('tanafs_hyperpay_currency', get_option('tanafs_aps_currency', 'SAR'));
     $force_external_test_mode = get_option('tanafs_hyperpay_force_external_test_mode', '0');
     $sandbox_minimal_payload = get_option('tanafs_hyperpay_sandbox_minimal_payload', '1');
+    $enable_card = get_option('tanafs_hyperpay_enable_card', '1');
+    $enable_tamara = get_option('tanafs_hyperpay_enable_tamara', '1');
+    $enable_applepay = get_option('tanafs_hyperpay_enable_applepay', '1');
     
     ?>
     <div class="wrap">
@@ -340,6 +349,23 @@ function tanafs_render_payment_config_page() {
                         <input type="checkbox" class="form-check-input" id="sandbox_minimal_payload" name="sandbox_minimal_payload" value="1" <?php checked($sandbox_minimal_payload, '1'); ?>>
                         <label class="form-check-label" for="sandbox_minimal_payload">Use Sandbox Minimal Checkout Payload</label>
                         <small class="text-muted d-block">Recommended for debugging when checkouts are created but no transaction is materialized in portal. This keeps only core fields used in known-working manual tests.</small>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label">Enabled Payment Methods</label>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="enable_card" name="enable_card" value="1" <?php checked($enable_card, '1'); ?>>
+                            <label class="form-check-label" for="enable_card">Mada / Visa / Mastercard</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="enable_tamara" name="enable_tamara" value="1" <?php checked($enable_tamara, '1'); ?>>
+                            <label class="form-check-label" for="enable_tamara">Tamara</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="enable_applepay" name="enable_applepay" value="1" <?php checked($enable_applepay, '1'); ?>>
+                            <label class="form-check-label" for="enable_applepay">Apple Pay</label>
+                        </div>
+                        <small class="text-muted d-block mt-2">All methods are enabled by default.</small>
                     </div>
 
                     <div class="warning-box">
@@ -825,6 +851,277 @@ function tanafs_hyperpay_get_checkout_endpoint() {
 }
 
 /**
+ * Check whether a payment method is enabled from HyperPay admin settings.
+ *
+ * @param string $payment_method Normalized method key.
+ * @return bool
+ */
+function tanafs_hyperpay_is_method_enabled($payment_method) {
+    $method = strtolower(trim((string) $payment_method));
+
+    if ($method === 'tamara') {
+        return get_option('tanafs_hyperpay_enable_tamara', '1') === '1';
+    }
+
+    if ($method === 'applepay') {
+        return get_option('tanafs_hyperpay_enable_applepay', '1') === '1';
+    }
+
+    return get_option('tanafs_hyperpay_enable_card', '1') === '1';
+}
+
+/**
+ * Return enabled payment methods in display order.
+ *
+ * @return array
+ */
+function tanafs_hyperpay_get_enabled_methods() {
+    $methods = [];
+
+    if (tanafs_hyperpay_is_method_enabled('card')) {
+        $methods[] = 'card';
+    }
+    if (tanafs_hyperpay_is_method_enabled('tamara')) {
+        $methods[] = 'tamara';
+    }
+    if (tanafs_hyperpay_is_method_enabled('applepay')) {
+        $methods[] = 'applepay';
+    }
+
+    return $methods;
+}
+
+/**
+ * Normalize HTTP headers object/array for structured logging.
+ *
+ * @param mixed $headers Headers from wp_remote_* response.
+ * @return array
+ */
+function tanafs_normalize_http_headers_for_log($headers) {
+    if (is_array($headers)) {
+        return $headers;
+    }
+
+    if (is_object($headers)) {
+        if (method_exists($headers, 'getAll')) {
+            $all = $headers->getAll();
+            if (is_array($all)) {
+                return $all;
+            }
+        }
+
+        if (method_exists($headers, 'toArray')) {
+            $all = $headers->toArray();
+            if (is_array($all)) {
+                return $all;
+            }
+        }
+
+        return (array) $headers;
+    }
+
+    return [];
+}
+
+/**
+ * Normalize requested payment method to supported keys.
+ *
+ * @param string $payment_method Raw method key from frontend.
+ * @return string card|tamara|applepay
+ */
+function tanafs_hyperpay_normalize_payment_method($payment_method) {
+    $method = strtolower(trim((string) $payment_method));
+
+    $aliases = [
+        'card' => 'card',
+        'cards' => 'card',
+        'mada_visa_mastercard' => 'card',
+        'mada-visa-mastercard' => 'card',
+        'mada' => 'card',
+        'tamara' => 'tamara',
+        'applepay' => 'applepay',
+        'apple_pay' => 'applepay',
+        'apple-pay' => 'applepay',
+    ];
+
+    return $aliases[$method] ?? 'card';
+}
+
+/**
+ * Map payment method to HyperPay brand string.
+ *
+ * @param string $payment_method Normalized method.
+ * @return string
+ */
+function tanafs_hyperpay_get_brands_for_method($payment_method) {
+    $method = tanafs_hyperpay_normalize_payment_method($payment_method);
+
+    if ($method === 'tamara') {
+        return 'TAMARA';
+    }
+
+    if ($method === 'applepay') {
+        return 'APPLEPAY';
+    }
+
+    return 'MADA VISA MASTER';
+}
+
+/**
+ * Get Tamara description endpoint URL by mode.
+ *
+ * @param string $entity_id HyperPay entity id.
+ * @return string
+ */
+function tanafs_hyperpay_get_tamara_description_endpoint($entity_id) {
+    $entity_id = rawurlencode((string) $entity_id);
+    if (tanafs_gateway_get_mode() === 'live') {
+        return 'https://tamara-prod.hyperpay.com/api/tamara-description/' . $entity_id;
+    }
+
+    return 'https://tamara-dev.hyperpay.com/api/tamara-description/' . $entity_id;
+}
+
+/**
+ * Fetch Tamara payment details from HyperPay Tamara API.
+ *
+ * @param string $entity_id HyperPay entity id.
+ * @param string $amount_formatted Amount with 2 decimals.
+ * @param string $currency Currency code.
+ * @return array
+ */
+function tanafs_hyperpay_get_tamara_payment_details($entity_id, $amount_formatted, $currency, $context = []) {
+    if (tanafs_gateway_get_mode() !== 'live') {
+        $static_response = [
+            'payment_type' => 'PAY_BY_INSTALMENTS',
+            'instalment' => 4,
+            'description_en' => 'Monthly payments. Sharia-compliant.',
+            'description_ar' => 'دفعات شهرية. متوافقة مع الشريعة الإسلامية.',
+        ];
+
+        tanafs_log_payment('tamara_description_response', [
+            'event' => 'tamara_description_response',
+            'booking_token' => sanitize_text_field((string) ($context['booking_token'] ?? '')),
+            'booking_type' => sanitize_text_field((string) ($context['booking_type'] ?? '')),
+            'source' => 'sandbox_static',
+            'request_payload' => [
+                'country' => 'SA',
+                'order_value' => [
+                    'amount' => (string) $amount_formatted,
+                    'currency' => (string) $currency,
+                ],
+            ],
+            'response_raw' => wp_json_encode($static_response),
+            'response_decoded' => $static_response,
+            'success' => true,
+        ]);
+
+        return [
+            'success' => true,
+            'payment_type' => 'PAY_BY_INSTALMENTS',
+            'instalments' => 4,
+            'instalment' => 4,
+            'description_en' => $static_response['description_en'],
+            'description_ar' => $static_response['description_ar'],
+            'raw' => $static_response,
+            'source' => 'sandbox_static',
+        ];
+    }
+
+    $endpoint = tanafs_hyperpay_get_tamara_description_endpoint($entity_id);
+    $payload = [
+        'country' => 'SA',
+        'order_value' => [
+            'amount' => (string) $amount_formatted,
+            'currency' => (string) $currency,
+        ],
+    ];
+
+    $response = wp_remote_post($endpoint, [
+        'headers' => [
+            'Content-Type' => 'application/json',
+        ],
+        'body' => wp_json_encode($payload),
+        'timeout' => 20,
+    ]);
+
+    if (is_wp_error($response)) {
+        tanafs_log_payment('tamara_description_response', [
+            'event' => 'tamara_description_response',
+            'booking_token' => sanitize_text_field((string) ($context['booking_token'] ?? '')),
+            'booking_type' => sanitize_text_field((string) ($context['booking_type'] ?? '')),
+            'endpoint' => $endpoint,
+            'request_payload' => $payload,
+            'transport_error' => $response->get_error_message(),
+            'success' => false,
+        ]);
+
+        return [
+            'success' => false,
+            'error' => 'Unable to fetch Tamara payment details.',
+            'details' => $response->get_error_message(),
+        ];
+    }
+
+    $status_code = wp_remote_retrieve_response_code($response);
+    $response_body = wp_remote_retrieve_body($response);
+    $response_headers = tanafs_normalize_http_headers_for_log(wp_remote_retrieve_headers($response));
+    $decoded = json_decode($response_body, true);
+
+    tanafs_log_payment('tamara_description_response', [
+        'event' => 'tamara_description_response',
+        'booking_token' => sanitize_text_field((string) ($context['booking_token'] ?? '')),
+        'booking_type' => sanitize_text_field((string) ($context['booking_type'] ?? '')),
+        'endpoint' => $endpoint,
+        'request_payload' => $payload,
+        'http_status' => (int) $status_code,
+        'response_headers' => $response_headers,
+        'response_raw' => $response_body,
+        'response_decoded' => $decoded,
+        'success' => ($status_code >= 200 && $status_code < 300),
+    ]);
+
+    if ($status_code < 200 || $status_code >= 300 || !is_array($decoded)) {
+        return [
+            'success' => false,
+            'error' => 'Tamara payment details request was rejected.',
+            'details' => $decoded,
+        ];
+    }
+
+    if (empty($decoded['has_available_payment_options'])) {
+        return [
+            'success' => false,
+            'error' => 'Tamara is currently unavailable for this amount.',
+            'details' => $decoded,
+        ];
+    }
+
+    $labels = $decoded['available_payment_labels'] ?? [];
+    $label = is_array($labels) && !empty($labels[0]) && is_array($labels[0]) ? $labels[0] : [];
+
+    $payment_type = sanitize_text_field((string) ($label['payment_type'] ?? 'PAY_BY_INSTALMENTS'));
+    $instalments = intval($label['instalment'] ?? 0);
+
+    if ($payment_type !== 'PAY_BY_INSTALMENTS' || $instalments <= 0) {
+        return [
+            'success' => false,
+            'error' => 'Tamara installment details are invalid.',
+            'details' => $decoded,
+        ];
+    }
+
+    return [
+        'success' => true,
+        'payment_type' => $payment_type,
+        'instalments' => $instalments,
+        'description_en' => sanitize_text_field((string) ($label['description_en'] ?? '')),
+        'description_ar' => sanitize_text_field((string) ($label['description_ar'] ?? '')),
+        'raw' => $decoded,
+    ];
+}
+
+/**
  * Build hosted checkout page URL for rendering a minimal Copy and Pay form.
  *
  * @param string $booking_token Booking token.
@@ -833,12 +1130,13 @@ function tanafs_hyperpay_get_checkout_endpoint() {
  * @param string $return_url Shopper return URL.
  * @return string
  */
-function tanafs_build_hosted_checkout_url($booking_token, $booking_type, $checkout_id, $return_url = '') {
+function tanafs_build_hosted_checkout_url($booking_token, $booking_type, $checkout_id, $return_url = '', $payment_method = 'card') {
     $args = [
         'payment_widget' => 1,
         'booking_token' => sanitize_text_field((string) $booking_token),
         'booking_type' => sanitize_text_field((string) $booking_type),
         'checkout_id' => sanitize_text_field((string) $checkout_id),
+        'payment_method' => tanafs_hyperpay_normalize_payment_method($payment_method),
     ];
 
     if (!empty($return_url)) {
@@ -1011,7 +1309,7 @@ function tanafs_hyperpay_normalize_phone($phone) {
  * @param array  $customer_details Customer details.
  * @return bool
  */
-function tanafs_insert_pending_payment($transaction_id, $booking_token, $booking_type, $amount, $currency, $customer_details) {
+function tanafs_insert_pending_payment($transaction_id, $booking_token, $booking_type, $amount, $currency, $customer_details, $payment_method = 'card') {
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'tanafs_payments';
@@ -1051,7 +1349,7 @@ function tanafs_insert_pending_payment($transaction_id, $booking_token, $booking
         'currency' => sanitize_text_field($currency),
         'status' => 'pending',
         'payment_status' => 'pending',
-        'payment_method' => 'hyperpay',
+        'payment_method' => tanafs_hyperpay_normalize_payment_method($payment_method),
         'ip_address' => sanitize_text_field($_SERVER['REMOTE_ADDR'] ?? ''),
         'user_agent' => sanitize_text_field($_SERVER['HTTP_USER_AGENT'] ?? ''),
     ];
@@ -1127,6 +1425,16 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
     $entity_id = get_option('tanafs_hyperpay_entity_id', '');
     $access_token = get_option('tanafs_hyperpay_access_token', '');
     $currency = sanitize_text_field($options['currency'] ?? get_option('tanafs_hyperpay_currency', get_option('tanafs_aps_currency', 'SAR')));
+    $payment_method = tanafs_hyperpay_normalize_payment_method($options['payment_method'] ?? 'card');
+
+    if (!tanafs_hyperpay_is_method_enabled($payment_method)) {
+        return [
+            'success' => false,
+            'error' => 'Selected payment method is currently unavailable. Please choose another method.',
+        ];
+    }
+
+    $selected_brands = tanafs_hyperpay_get_brands_for_method($payment_method);
     $amount_formatted = number_format((float) $amount, 2, '.', '');
     $transaction_id = 'TANAFS_' . strtoupper($booking_type) . '_' . time() . '_' . wp_rand(1000, 9999);
 
@@ -1143,7 +1451,7 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
     }
 
     // Security rule: always create pending row before checkout creation.
-    $inserted = tanafs_insert_pending_payment($transaction_id, $booking_token, $booking_type, $amount, $currency, $customer_details);
+    $inserted = tanafs_insert_pending_payment($transaction_id, $booking_token, $booking_type, $amount, $currency, $customer_details, $payment_method);
     if (!$inserted) {
         return [
             'success' => false,
@@ -1152,7 +1460,8 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
     }
 
     $name_parts = tanafs_hyperpay_split_name($customer_details['name'] ?? '');
-    $is_test_mode = true;
+    $is_sandbox_mode = (tanafs_gateway_get_mode() !== 'live');
+    $force_external_test_mode = (get_option('tanafs_hyperpay_force_external_test_mode', '0') === '1');
     $billing_country = tanafs_hyperpay_normalize_country_code($customer_details['country'] ?? 'SA');
     $customer_phone = tanafs_hyperpay_normalize_phone($customer_details['phone'] ?? '');
 
@@ -1177,13 +1486,64 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
         // 'customParameters[booking_type]' => sanitize_text_field($booking_type),
     ];
 
-    $sandbox_minimal_payload = false;
-    $integrity_requested = false;
-    if ($is_test_mode) {
+    if ($is_sandbox_mode) {
         $request_body['integrity'] = true;
+    }
+
+    if ($is_sandbox_mode && $force_external_test_mode) {
         $request_body['testMode'] = 'EXTERNAL';
         $request_body['customParameters[3DS2_enrolled]'] = true;
         $request_body['customParameters[3DS2_flow]'] = 'challenge';
+    }
+
+    if ($payment_method === 'tamara') {
+        $tamara_details = tanafs_hyperpay_get_tamara_payment_details($entity_id, $amount_formatted, $currency, [
+            'booking_token' => $booking_token,
+            'booking_type' => $booking_type,
+        ]);
+        if (!$tamara_details['success']) {
+            $table_name = $wpdb->prefix . 'tanafs_payments';
+            $wpdb->update(
+                $table_name,
+                [
+                    'status' => 'failed',
+                    'payment_status' => 'failed',
+                    'aps_response_message' => sanitize_text_field((string) $tamara_details['error']),
+                ],
+                ['transaction_id' => $transaction_id],
+                ['%s', '%s', '%s'],
+                ['%s']
+            );
+
+            tanafs_log_payment('initiation_failed', [
+                'event' => 'initiation_failed',
+                'reason' => 'tamara_description_unavailable',
+                'booking_token' => $booking_token,
+                'booking_type' => $booking_type,
+                'transaction_id' => $transaction_id,
+                'error' => $tamara_details['error'] ?? 'Tamara unavailable',
+                'details' => $tamara_details['details'] ?? [],
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $tamara_details['error'] ?? 'Tamara is currently unavailable.',
+            ];
+        }
+
+        $request_body['customParameters[tamara_payment_type]'] = $tamara_details['payment_type'];
+        $request_body['customParameters[instalments]'] = (string) $tamara_details['instalments'];
+        $request_body['cart.items[0].name'] = ucfirst($booking_type) . ' booking';
+        $request_body['cart.items[0].type'] = 'service';
+        $request_body['cart.items[0].sku'] = strtoupper($booking_type) . '-001';
+        $request_body['cart.items[0].quantity'] = '1';
+        $request_body['cart.items[0].merchantItemId'] = sanitize_text_field((string) $booking_token);
+        $request_body['cart.items[0].totalAmount'] = $amount_formatted;
+
+        // Required in sandbox for Tamara redirect flow.
+        if ($is_sandbox_mode) {
+            $request_body['testMode'] = 'EXTERNAL';
+        }
     }
 
    
@@ -1225,6 +1585,17 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
             'error' => $response->get_error_message(),
         ]);
 
+        tanafs_log_payment('hyperpay_checkout_response', [
+            'event' => 'hyperpay_checkout_response',
+            'booking_token' => $booking_token,
+            'booking_type' => $booking_type,
+            'transaction_id' => $transaction_id,
+            'endpoint' => tanafs_hyperpay_get_checkout_endpoint(),
+            'request_payload' => $request_body,
+            'transport_error' => $response->get_error_message(),
+            'success' => false,
+        ]);
+
         return [
             'success' => false,
             'error' => 'Unable to connect to payment gateway. Please try again.',
@@ -1234,7 +1605,22 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
     $status_code = wp_remote_retrieve_response_code($response);
     $response_body = wp_remote_retrieve_body($response);
     $response_headers = wp_remote_retrieve_headers($response);
+    $response_headers_log = tanafs_normalize_http_headers_for_log($response_headers);
     $decoded = json_decode($response_body, true);
+
+    tanafs_log_payment('hyperpay_checkout_response', [
+        'event' => 'hyperpay_checkout_response',
+        'booking_token' => $booking_token,
+        'booking_type' => $booking_type,
+        'transaction_id' => $transaction_id,
+        'endpoint' => tanafs_hyperpay_get_checkout_endpoint(),
+        'request_payload' => $request_body,
+        'http_status' => (int) $status_code,
+        'response_headers' => $response_headers_log,
+        'response_raw' => $response_body,
+        'response_decoded' => $decoded,
+        'success' => ($status_code >= 200 && $status_code < 300),
+    ]);
 
     if ($status_code < 200 || $status_code >= 300 || empty($decoded['id'])) {
         $table_name = $wpdb->prefix . 'tanafs_payments';
@@ -1299,6 +1685,8 @@ function tanafs_hyperpay_create_checkout($booking_token, $booking_type, $amount,
         'widget_url' => $widget_url,
         'widget_integrity' => sanitize_text_field($decoded['integrity'] ?? ''),
         'transaction_id' => $transaction_id,
+        'payment_method' => $payment_method,
+        'brands' => $selected_brands,
         'return_url' => $return_url,
     ];
 }
@@ -1415,8 +1803,24 @@ function tanafs_hyperpay_verify_via_query($args, $entity_id, $access_token) {
 
     $status_code = (int) wp_remote_retrieve_response_code($response);
     $body = wp_remote_retrieve_body($response);
+    $response_headers = tanafs_normalize_http_headers_for_log(wp_remote_retrieve_headers($response));
     $decoded = json_decode($body, true);
     $query_result_code = sanitize_text_field($decoded['result']['code'] ?? '');
+
+    tanafs_log_payment('verification_gateway_response', [
+        'event' => 'verification_gateway_response',
+        'booking_token' => $args['booking_token'] ?? '',
+        'booking_type' => $args['booking_type'] ?? '',
+        'checkout_id' => sanitize_text_field($args['checkout_id'] ?? ''),
+        'merchant_transaction_id' => $merchant_transaction_id,
+        'resource_path' => sanitize_text_field($args['resource_path'] ?? ''),
+        'endpoint' => $endpoint,
+        'verification_fallback' => 'query_by_merchant_transaction_id',
+        'http_status' => $status_code,
+        'response_headers' => $response_headers,
+        'response_raw' => $body,
+        'response_decoded' => $decoded,
+    ]);
 
     if ($query_result_code === '700.400.580') {
         tanafs_log_payment('verification_result', [
@@ -1596,7 +2000,23 @@ function tanafs_hyperpay_verify_payment($args = []) {
     $status_code = (int) wp_remote_retrieve_response_code($response);
     $body = wp_remote_retrieve_body($response);
     $response_headers = wp_remote_retrieve_headers($response);
+    $response_headers_log = tanafs_normalize_http_headers_for_log($response_headers);
     $decoded = json_decode($body, true);
+
+    tanafs_log_payment('verification_gateway_response', [
+        'event' => 'verification_gateway_response',
+        'booking_token' => $args['booking_token'] ?? '',
+        'booking_type' => $args['booking_type'] ?? '',
+        'checkout_id' => $checkout_id,
+        'merchant_transaction_id' => $merchant_transaction_id,
+        'resource_path' => $resource_path,
+        'endpoint' => $endpoint,
+        'http_status' => $status_code,
+        'response_headers' => $response_headers_log,
+        'response_raw' => $body,
+        'response_decoded' => $decoded,
+        'hyperpay_request_id' => sanitize_text_field((string) ($response_headers['x-request-id'] ?? ($response_headers['X-Request-Id'] ?? ''))),
+    ]);
 
     if (!is_array($decoded)) {
         tanafs_log_payment('verification_result', [
@@ -2022,6 +2442,8 @@ function tanafs_render_payment_widget_page() {
     $booking_token = sanitize_text_field($_GET['booking_token'] ?? '');
     $booking_type = sanitize_text_field($_GET['booking_type'] ?? '');
     $checkout_id = sanitize_text_field($_GET['checkout_id'] ?? '');
+    $payment_method = tanafs_hyperpay_normalize_payment_method($_GET['payment_method'] ?? 'card');
+    $selected_brands = tanafs_hyperpay_get_brands_for_method($payment_method);
     $encoded_return_url = sanitize_text_field($_GET['return_url'] ?? '');
     $return_url = urldecode((string) $encoded_return_url);
 
@@ -2069,6 +2491,8 @@ function tanafs_render_payment_widget_page() {
         'booking_type' => $payment->booking_type,
         'checkout_id' => $checkout_id,
         'result_url' => $result_url,
+        'payment_method' => $payment_method,
+        'brands' => $selected_brands,
         'widget_integrity_present' => !empty($widget_integrity),
     ]);
 
@@ -2088,10 +2512,12 @@ function tanafs_render_payment_widget_page() {
                 var ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
                 var widgetUrl = <?php echo wp_json_encode($widget_url); ?>;
                 var resultUrl = <?php echo wp_json_encode($result_url); ?>;
+                var brands = <?php echo wp_json_encode($selected_brands); ?>;
 
                 console.log('[Tanafs HyperPay Hosted] init_payload', {
                     booking_token: bookingToken,
                     checkout_id: checkoutId,
+                    brands: brands,
                     widget_url: widgetUrl,
                     result_url: resultUrl,
                     page_url: window.location.href
@@ -2182,7 +2608,7 @@ function tanafs_render_payment_widget_page() {
         <div class="wrap">
             <h2>Secure Payment</h2>
             <p>Please complete your payment to continue.</p>
-            <form action="<?php echo esc_url($result_url); ?>" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>
+            <form action="<?php echo esc_url($result_url); ?>" class="paymentWidgets" data-brands="<?php echo esc_attr($selected_brands); ?>"></form>
         </div>
     </body>
     </html>
@@ -2966,6 +3392,7 @@ function tanafs_ajax_initiate_therapy_payment() {
     }
     
     $booking_token = sanitize_text_field($_POST['booking_token'] ?? '');
+    $payment_method = tanafs_hyperpay_normalize_payment_method($_POST['payment_method'] ?? 'card');
     if (empty($booking_token)) {
         wp_send_json_error(['message' => 'Invalid booking session']);
         return;
@@ -3011,6 +3438,7 @@ function tanafs_ajax_initiate_therapy_payment() {
         [
             'currency' => $booking_data['currency'],
             'return_url' => $return_url,
+            'payment_method' => $payment_method,
         ]
     );
     
@@ -3019,7 +3447,8 @@ function tanafs_ajax_initiate_therapy_payment() {
             $booking_token,
             'therapy',
             $result['checkout_id'],
-            $result['return_url']
+            $result['return_url'],
+            $payment_method
         );
 
         wp_send_json_success([
@@ -3027,6 +3456,8 @@ function tanafs_ajax_initiate_therapy_payment() {
             'checkout_id' => $result['checkout_id'],
             'widget_url' => $result['widget_url'],
             'result_url' => $result['return_url'],
+            'brands' => $result['brands'] ?? tanafs_hyperpay_get_brands_for_method($payment_method),
+            'payment_method' => $payment_method,
             'hosted_checkout_url' => $hosted_checkout_url,
             'transaction_id' => $result['transaction_id'],
         ]);
@@ -3055,6 +3486,7 @@ function tanafs_ajax_initiate_retreat_payment() {
     }
     
     $booking_token = sanitize_text_field($_POST['booking_token'] ?? ($_POST['token'] ?? ''));
+    $payment_method = tanafs_hyperpay_normalize_payment_method($_POST['payment_method'] ?? 'card');
     if (empty($booking_token)) {
         wp_send_json_error(['message' => 'Invalid booking session']);
         return;
@@ -3103,6 +3535,7 @@ function tanafs_ajax_initiate_retreat_payment() {
         [
             'currency' => $booking_data['currency'],
             'return_url' => $retreat_page_url,
+            'payment_method' => $payment_method,
         ]
     );
     
@@ -3111,7 +3544,8 @@ function tanafs_ajax_initiate_retreat_payment() {
             $booking_token,
             'retreat',
             $result['checkout_id'],
-            $result['return_url']
+            $result['return_url'],
+            $payment_method
         );
 
         wp_send_json_success([
@@ -3119,6 +3553,8 @@ function tanafs_ajax_initiate_retreat_payment() {
             'checkout_id' => $result['checkout_id'],
             'widget_url' => $result['widget_url'],
             'result_url' => $result['return_url'],
+            'brands' => $result['brands'] ?? tanafs_hyperpay_get_brands_for_method($payment_method),
+            'payment_method' => $payment_method,
             'hosted_checkout_url' => $hosted_checkout_url,
             'transaction_id' => $result['transaction_id'],
         ]);
@@ -3153,6 +3589,7 @@ function tanafs_ajax_initiate_therapy_payment_logged_in() {
     
     $current_user = wp_get_current_user();
     $selected_group_id = intval($_POST['selected_group_id'] ?? 0);
+    $payment_method = tanafs_hyperpay_normalize_payment_method($_POST['payment_method'] ?? 'card');
     
     if ($selected_group_id <= 0) {
         wp_send_json_error(['message' => 'Please select a therapy group session']);
@@ -3210,6 +3647,7 @@ function tanafs_ajax_initiate_therapy_payment_logged_in() {
         [
             'currency' => get_option('tanafs_hyperpay_currency', get_option('tanafs_aps_currency', 'SAR')),
             'return_url' => $return_url,
+            'payment_method' => $payment_method,
         ]
     );
     
@@ -3218,7 +3656,8 @@ function tanafs_ajax_initiate_therapy_payment_logged_in() {
             $booking_token,
             'therapy',
             $result['checkout_id'],
-            $result['return_url']
+            $result['return_url'],
+            $payment_method
         );
 
         wp_send_json_success([
@@ -3226,6 +3665,8 @@ function tanafs_ajax_initiate_therapy_payment_logged_in() {
             'checkout_id' => $result['checkout_id'],
             'widget_url' => $result['widget_url'],
             'result_url' => $result['return_url'],
+            'brands' => $result['brands'] ?? tanafs_hyperpay_get_brands_for_method($payment_method),
+            'payment_method' => $payment_method,
             'hosted_checkout_url' => $hosted_checkout_url,
             'transaction_id' => $result['transaction_id'],
         ]);
@@ -3249,6 +3690,7 @@ function tanafs_ajax_initiate_academy_payment() {
     }
     
     $program_id = intval($_POST['program_id'] ?? 0);
+    $payment_method = tanafs_hyperpay_normalize_payment_method($_POST['payment_method'] ?? 'card');
     $full_name = sanitize_text_field($_POST['full_name'] ?? '');
     $email = sanitize_email($_POST['email'] ?? '');
     $phone = sanitize_text_field($_POST['phone'] ?? '');
@@ -3313,6 +3755,7 @@ function tanafs_ajax_initiate_academy_payment() {
         [
             'currency' => 'SAR',
             'return_url' => $return_page_url,
+            'payment_method' => $payment_method,
         ]
     );
     
@@ -3321,7 +3764,8 @@ function tanafs_ajax_initiate_academy_payment() {
             $booking_token,
             'academy',
             $result['checkout_id'],
-            $result['return_url']
+            $result['return_url'],
+            $payment_method
         );
 
         wp_send_json_success([
@@ -3329,6 +3773,8 @@ function tanafs_ajax_initiate_academy_payment() {
             'checkout_id' => $result['checkout_id'],
             'widget_url' => $result['widget_url'],
             'result_url' => $result['return_url'],
+            'brands' => $result['brands'] ?? tanafs_hyperpay_get_brands_for_method($payment_method),
+            'payment_method' => $payment_method,
             'hosted_checkout_url' => $hosted_checkout_url,
             'transaction_id' => $result['transaction_id'],
         ]);

@@ -2134,6 +2134,123 @@ function academy_phase1_shortcode()
     <script>
         jQuery(document).ready(function($) {
             let currentProgramId = null;
+            const tanafsPaymentMethodAvailability = <?php echo wp_json_encode([
+                'card' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('card') : true,
+                'tamara' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('tamara') : true,
+                'applepay' => function_exists('tanafs_hyperpay_is_method_enabled') ? tanafs_hyperpay_is_method_enabled('applepay') : true,
+            ]); ?>;
+            const tanafsComingSoonText = <?php echo wp_json_encode($is_arabic ? 'قريباً' : 'Coming soon'); ?>;
+
+            function tanafsGetBrandsByMethod(method) {
+                if (method === 'tamara') {
+                    return 'TAMARA';
+                }
+                if (method === 'applepay') {
+                    return 'APPLEPAY';
+                }
+                return 'MADA VISA MASTER';
+            }
+
+            function tanafsEnsurePaymentMethodModalStyles() {
+                if (document.getElementById('tanafs-payment-method-modal-style')) {
+                    return;
+                }
+
+                const style = document.createElement('style');
+                style.id = 'tanafs-payment-method-modal-style';
+                style.textContent = '\
+                .tanafs-payment-method-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100002; display: flex; align-items: center; justify-content: center; padding: 16px; }\
+                .tanafs-payment-method-modal { width: 100%; max-width: 520px; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 36px rgba(0,0,0,0.2); }\
+                .tanafs-payment-method-header { padding: 18px 20px; background: linear-gradient(135deg, #9B8DC8 0%, #8ECFC3 100%); color: #fff; }\
+                .tanafs-payment-method-header h3 { margin: 0; font-size: 20px; }\
+                .tanafs-payment-method-body { padding: 18px 20px; }\
+                .tanafs-payment-method-option { display: flex; align-items: center; gap: 10px; border: 1px solid #dcdcdc; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; }\
+                .tanafs-payment-method-option:hover { border-color: #6059A6; background: #f7f6fc; }\
+                .tanafs-payment-method-option.disabled { cursor: not-allowed; opacity: 0.65; background: #f7f7f7; }\
+                .tanafs-payment-method-option.disabled:hover { border-color: #dcdcdc; background: #f7f7f7; }\
+                .tanafs-payment-method-option input { margin: 0; }\
+                .tanafs-payment-method-coming-soon { margin-<?php echo $is_arabic ? 'right' : 'left'; ?>: auto; font-size: 12px; color: #9a6a00; background: #fff3cd; padding: 2px 8px; border-radius: 999px; }\
+                .tanafs-payment-method-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }\
+                .tanafs-payment-method-btn { border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; cursor: pointer; }\
+                .tanafs-payment-method-btn.cancel { background: #ececec; color: #333; }\
+                .tanafs-payment-method-btn.continue { background: #6059A6; color: #fff; }\
+                ';
+                document.head.appendChild(style);
+            }
+
+            function tanafsShowPaymentMethodModal(onConfirm) {
+                tanafsEnsurePaymentMethodModalStyles();
+
+                const methods = ['card', 'tamara', 'applepay'];
+                const hasEnabled = methods.some(function(method) {
+                    return !!tanafsPaymentMethodAvailability[method];
+                });
+
+                if (!hasEnabled) {
+                    alert('No payment methods are currently available. Please contact support.');
+                    return;
+                }
+
+                let optionsHtml = '';
+                let isFirstEnabled = true;
+                methods.forEach(function(method) {
+                    let label = 'Mada / Visa / Mastercard';
+                    if (method === 'tamara') {
+                        label = 'Tamara';
+                    } else if (method === 'applepay') {
+                        label = 'Apple Pay';
+                    }
+
+                    const isEnabled = !!tanafsPaymentMethodAvailability[method];
+                    const checked = isEnabled && isFirstEnabled ? ' checked' : '';
+                    if (isEnabled && isFirstEnabled) {
+                        isFirstEnabled = false;
+                    }
+
+                    optionsHtml += '<label class="tanafs-payment-method-option' + (isEnabled ? '' : ' disabled') + '">'
+                        + '<input type="radio" name="tanafs_payment_method" value="' + method + '"' + checked + (isEnabled ? '' : ' disabled') + '>'
+                        + '<span>' + label + '</span>'
+                        + (isEnabled ? '' : '<span class="tanafs-payment-method-coming-soon">' + tanafsComingSoonText + '</span>')
+                        + '</label>';
+                });
+
+                const modal = document.createElement('div');
+                modal.className = 'tanafs-payment-method-overlay';
+                modal.innerHTML = ''
+                    + '<div class="tanafs-payment-method-modal">'
+                    + '  <div class="tanafs-payment-method-header"><h3>Select Payment Method</h3></div>'
+                    + '  <div class="tanafs-payment-method-body">'
+                    + optionsHtml
+                    + '    <div class="tanafs-payment-method-actions">'
+                    + '      <button type="button" class="tanafs-payment-method-btn cancel">Cancel</button>'
+                    + '      <button type="button" class="tanafs-payment-method-btn continue">Continue</button>'
+                    + '    </div>'
+                    + '  </div>'
+                    + '</div>';
+
+                document.body.appendChild(modal);
+
+                modal.querySelector('.tanafs-payment-method-btn.cancel').addEventListener('click', function() {
+                    modal.remove();
+                });
+
+                modal.querySelector('.tanafs-payment-method-btn.continue').addEventListener('click', function() {
+                    const selected = modal.querySelector('input[name="tanafs_payment_method"]:checked');
+                    if (!selected) {
+                        alert('Please select an available payment method.');
+                        return;
+                    }
+                    const method = selected.value;
+                    modal.remove();
+                    onConfirm(method);
+                });
+
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        modal.remove();
+                    }
+                });
+            }
 
             // Initialize Select2 when modal opens
             function initSelect2() {
@@ -2208,53 +2325,59 @@ function academy_phase1_shortcode()
             $('#academy-register-form').on('submit', function(e) {
                 e.preventDefault();
 
-                var formData = $(this).serialize();
-                formData += '&action=tanafs_initiate_academy_payment';
-                // Pass the current page URL so gateway return can land here
-                formData += '&return_page_url=' + encodeURIComponent(window.location.origin + window.location.pathname);
+                const $form = $(this);
+                const $btn = $form.find('button[type="submit"]');
 
-                const $btn = $(this).find('button[type="submit"]');
-                $btn.prop('disabled', true).html('<span style="display:inline-flex;align-items:center;gap:8px;"><svg style="animation:spin 1s linear infinite;width:18px;height:18px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity=".3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> Processing...</span>');
+                tanafsShowPaymentMethodModal(function(selectedPaymentMethod) {
+                    var formData = $form.serialize();
+                    formData += '&action=tanafs_initiate_academy_payment';
+                    formData += '&payment_method=' + encodeURIComponent(selectedPaymentMethod);
+                    // Pass the current page URL so gateway return can land here
+                    formData += '&return_page_url=' + encodeURIComponent(window.location.origin + window.location.pathname);
 
-                $('#academy-register-result').hide();
+                    $btn.prop('disabled', true).html('<span style="display:inline-flex;align-items:center;gap:8px;"><svg style="animation:spin 1s linear infinite;width:18px;height:18px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity=".3"/><path d="M12 2a10 10 0 0 1 10 10"/></svg> Processing...</span>');
 
-                $.ajax({
-                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                    type: 'POST',
-                    data: formData,
-                    success: function(response) {
-                        if (response.success && response.data.gateway === 'hyperpay' && response.data.checkout_id && response.data.widget_url) {
-                            tanafsLaunchHyperPayCheckout(response.data);
-                        } else {
-                            const serverMessage = (response && response.data && response.data.message)
-                                ? response.data.message
-                                : (typeof response.data === 'string' ? response.data : 'Payment initiation failed. Please try again.');
+                    $('#academy-register-result').hide();
+
+                    $.ajax({
+                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                        type: 'POST',
+                        data: formData,
+                        success: function(response) {
+                            if (response.success && response.data.gateway === 'hyperpay' && response.data.checkout_id && response.data.widget_url) {
+                                tanafsLaunchHyperPayCheckout(response.data, selectedPaymentMethod);
+                            } else {
+                                const serverMessage = (response && response.data && response.data.message)
+                                    ? response.data.message
+                                    : (typeof response.data === 'string' ? response.data : 'Payment initiation failed. Please try again.');
+                                $btn.prop('disabled', false).text('<?php echo esc_js(academy_get_text('submit_registration')); ?>');
+                                $('#academy-register-result')
+                                    .css({'background': '#f8d7da', 'color': '#721c24', 'border': '1px solid #f5c6cb'})
+                                    .html('<strong>✗ Error:</strong> ' + serverMessage)
+                                    .show();
+                            }
+                        },
+                        error: function() {
                             $btn.prop('disabled', false).text('<?php echo esc_js(academy_get_text('submit_registration')); ?>');
                             $('#academy-register-result')
                                 .css({'background': '#f8d7da', 'color': '#721c24', 'border': '1px solid #f5c6cb'})
-                                .html('<strong>✗ Error:</strong> ' + serverMessage)
+                                .html('<strong>✗ Error:</strong> An error occurred. Please try again.')
                                 .show();
                         }
-                    },
-                    error: function() {
-                        $btn.prop('disabled', false).text('<?php echo esc_js(academy_get_text('submit_registration')); ?>');
-                        $('#academy-register-result')
-                            .css({'background': '#f8d7da', 'color': '#721c24', 'border': '1px solid #f5c6cb'})
-                            .html('<strong>✗ Error:</strong> An error occurred. Please try again.')
-                            .show();
-                    }
+                    });
                 });
             });
 
-            function tanafsLaunchHyperPayCheckout(payload) {
+            function tanafsLaunchHyperPayCheckout(payload, selectedPaymentMethod) {
                 window.wpwlOptions = {};
+                const brands = payload.brands || tanafsGetBrandsByMethod(selectedPaymentMethod || payload.payment_method || 'card');
 
                 const overlay = document.createElement('div');
                 overlay.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:999999;overflow:auto;padding:24px;';
                 overlay.innerHTML = '<div style="max-width:680px;margin:20px auto;">'
                     + '<h3 style="margin:0 0 12px 0;">Secure Payment</h3>'
                     + '<p style="margin:0 0 18px 0;color:#666;">Please complete your payment to continue.</p>'
-                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="MADA VISA MASTER"></form>'
+                    + '<form action="' + payload.result_url + '" class="paymentWidgets" data-brands="' + brands + '"></form>'
                     + '</div>';
                 document.body.appendChild(overlay);
 
