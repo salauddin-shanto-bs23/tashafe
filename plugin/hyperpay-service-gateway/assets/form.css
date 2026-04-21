@@ -1,0 +1,7 @@
+.hyperpay-service-form{max-width:560px;padding:20px;border:1px solid #ddd;border-radius:8px;background:#fff}
+.hyperpay-field{margin:0 0 14px}
+.hyperpay-field label{display:block;margin-bottom:6px;font-weight:600}
+.hyperpay-field input{width:100%;padding:10px;border:1px solid #c9c9c9;border-radius:6px}
+.hyperpay-required{color:#b80000}
+.hyperpay-submit-button{padding:10px 16px;background:#004f7c;color:#fff;border:none;border-radius:6px;cursor:pointer}
+.hyperpay-submit-button:hover{opacity:.92}
